@@ -86,5 +86,9 @@ def register_commands(app: Flask) -> None:
         click.echo("Seeding super user...")
         _seed_super_user(role_index)
 
+        click.echo("Seeding system settings...")
+        from .services import settings as settings_service
+        settings_service.seed_defaults()
+
         db.session.commit()
         click.echo("Done.")

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -15,9 +16,11 @@ import {
   Briefcase,
   ClipboardList,
   Key,
+  CheckSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
+import { api } from "@/lib/api";
 
 type NavItem = { href: string; label: string; icon: typeof LayoutDashboard; perm?: string };
 
@@ -29,6 +32,7 @@ const nav: NavItem[] = [
   { href: "/employees", label: "Employees", icon: Users, perm: "employee.view" },
   { href: "/divisions", label: "Divisions", icon: Briefcase, perm: "division.view" },
   { href: "/transactions", label: "Transactions", icon: ArrowRightLeft, perm: "assignment.view" },
+  { href: "/approvals", label: "Approvals", icon: CheckSquare, perm: "assignment.view" },
   { href: "/reports", label: "Reports", icon: FileSpreadsheet, perm: "report.view" },
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/users", label: "Users & Roles", icon: Shield, perm: "user.view" },
@@ -39,6 +43,19 @@ const nav: NavItem[] = [
 export function Sidebar() {
   const pathname = usePathname();
   const has = useAuth((s) => s.has);
+  const [pendingTotal, setPendingTotal] = useState(0);
+
+  useEffect(() => {
+    if (!has("assignment.view")) return;
+    const fetch = () => {
+      api.get("/approvals/counts")
+        .then((r) => setPendingTotal(r.data.data?.total ?? 0))
+        .catch(() => {});
+    };
+    fetch();
+    const t = setInterval(fetch, 60_000);
+    return () => clearInterval(t);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const items = nav.filter((n) => !n.perm || has(n.perm));
 
@@ -57,6 +74,7 @@ export function Sidebar() {
         {items.map((item) => {
           const Icon = item.icon;
           const active = pathname?.startsWith(item.href);
+          const badge = item.href === "/approvals" ? pendingTotal : 0;
           return (
             <Link
               key={item.href}
@@ -69,13 +87,18 @@ export function Sidebar() {
               )}
             >
               <Icon className="h-4 w-4" />
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {badge > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-medium">
+                  {badge > 99 ? "99+" : badge}
+                </span>
+              )}
             </Link>
           );
         })}
       </nav>
       <div className="p-3 text-xs text-muted-foreground border-t border-border">
-        v0.10.0 · Phase 10
+        v0.11.0 · Phase 11
       </div>
     </aside>
   );

@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 10 — Reports & Excel export complete.**
+> **Current status: Phase 11 — Approval workflow complete.**
 
 ---
 
@@ -133,7 +133,7 @@ pytest -q
 |  8 | Landlord renewal & maintenance | ✅ Complete |
 |  9 | Dashboard cards, charts, alerts | ✅ Complete |
 | 10 | Reports + Excel/PDF export | ✅ Complete |
-| 11 | Approval workflow | ⏳ |
+| 11 | Approval workflow | ✅ Complete |
 | 12 | System settings | ⏳ |
 | 13 | UI polish + responsive optimization | ⏳ |
 | 14 | Testing + production deployment | ⏳ |
@@ -584,24 +584,91 @@ Tests
   shipped report's filtering, the openpyxl export, missing-required-
   filter handling, 404 for unknown slugs, and the permission gate).
 
-## Next phase plan
-
-**Phase 11 — Approval workflow**
+## What Phase 11 added
 
 Backend
-- `approval_requests` table tied to the operational transactions
-  (assignment / transfer / cancellation / renewal). Capture the actor,
-  required role, status (pending / approved / rejected), decided_by,
-  decision_remarks, decided_at.
-- Toggle per-transaction-type approval requirement via system settings
-  (Phase 12 will surface the UI).
-- New "pending approval" status on the affected transactions and
-  the assignment service guards so that side effects only run after
-  approval.
+- New models:
+  - `SystemSetting` — generic key/value (JSON-typed) settings table with
+    `category` indexing.
+  - `ApprovalRequest` (`APPR-YYYYMM-NNNN`) — module, entity_type +
+    entity_id pointing at the underlying transaction, requested_by /
+    requested_at, status (`pending` / `approved` / `rejected`),
+    decided_by / decided_at / decision_remarks, human summary string.
+- Added `status` column to `AccommodationTransfer`,
+  `AccommodationCancellation`, `LandlordRenewal` (the assignment table
+  already had one). Default `"completed"`; pending records carry
+  `"pending_approval"`, rejected records carry `"rejected"`.
+- `services/settings.py` — `get / get_bool / set_value / seed_defaults`
+  helpers and four shipped toggles:
+  - `approval.assignment.required`
+  - `approval.transfer.required`
+  - `approval.cancellation.required`
+  - `approval.renewal.required`
+- `services/approvals.py` — `create_request`, `list_requests`,
+  `approve`, `reject`, `pending_counts`. Approve dispatches to a
+  module-specific finalizer:
+  - `finalize_pending_assignment` — re-runs every validation guard
+    against current state (in case the bed was taken by another
+    request while this one was pending) before applying side effects.
+  - `finalize_pending_transfer` — re-validates the destination bed,
+    then closes the source assignment, empties the source bed, posts
+    the new assignment, and links the two via the transfer row.
+  - `finalize_pending_cancellation` — closes the assignment, empties
+    the bed, clears `employee.current_*` and updates `employee.status`.
+  - `finalize_pending_renewal` — creates the new agreement and
+    archives the previous active one (draft fields are stashed on the
+    renewal row at request time and reconstituted on approval).
+- Refactored `post_assignment` / `post_transfer` / `post_cancellation` /
+  `post_renewal` so they:
+  - Run every validation guard up-front (no half-state ever).
+  - Honour the per-module approval setting: if ON, create the
+    transaction in `pending_approval` status, add an `ApprovalRequest`
+    row, and skip side effects. If OFF, behave exactly as before.
+- Endpoints:
+  - `GET /api/v1/approvals` — queue with `status` / `module` filters
+    and `pending_counts` in the meta.
+  - `GET /api/v1/approvals/counts` — module → count (for the sidebar
+    badge and dashboard).
+  - `POST /api/v1/approvals/<id>/approve` (gated by `approval.approve`)
+  - `POST /api/v1/approvals/<id>/reject` (gated by `approval.reject`)
+  - `GET /api/v1/settings` (gated by `settings.view`)
+  - `PUT /api/v1/settings/<key>` (gated by `settings.manage`)
+- CLI `flask --app wsgi seed` now also seeds the four approval settings
+  alongside permissions / roles / super-user.
 
 Frontend
-- `/approvals` queue with action / details / approve / reject buttons.
-- Pending badge on each transaction list and in the alert center.
+- `/approvals` — pending queue with module + status filters, semantic
+  tones, Approve / Reject buttons that open a tiny remarks dialog
+  before posting. Decision remarks are surfaced under the status badge.
+- `/settings` — replaces the placeholder with a focused page that
+  exposes the four approval toggles (UI gated by `settings.manage`,
+  read-only for `settings.view`). Phase 12 will broaden this page.
+- Sidebar gains an **Approvals** entry with a live pending-count badge
+  that polls `/approvals/counts` every minute. Tag bumped to v0.11.0.
+
+Tests
+- `pytest -q` → **91 passed** (12 new for approval queue happy paths,
+  assignment / transfer / cancellation / renewal pending behaviour,
+  reject leaves state untouched, second pending request for the same
+  employee is rejected up-front, approval revalidates at decision time
+  so a stolen bed surfaces "occupied", pending counts endpoint, and
+  the synchronous path still works when the toggle is off).
+
+## Next phase plan
+
+**Phase 12 — System settings (full)**
+
+Backend
+- Catalog of settings broken down by category (Company / Property /
+  Numbering / Approval / Alerts / Email / UI / Import / Security /
+  Backup / Audit), each with a type hint (`bool`, `int`, `string`,
+  `select`) so the UI can render the right control.
+- Per-section bulk update endpoint.
+
+Frontend
+- `/settings` becomes tabbed by category with section-level Save
+  buttons; each form renders from the catalog metadata.
+- Company branding (name / logo / address) surfaces in the topbar.
 
 ---
 

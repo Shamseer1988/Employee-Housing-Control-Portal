@@ -14,6 +14,8 @@ from .movement import (
     AccommodationTransfer, AccommodationCancellation, EmployeeVacation,
 )
 from .renewal_maintenance import LandlordRenewal, MaintenanceRecord
+from .system_setting import SystemSetting
+from .approval import ApprovalRequest
 
 __all__ = [
     "BaseModel",
@@ -41,4 +43,6 @@ __all__ = [
     "EmployeeVacation",
     "LandlordRenewal",
     "MaintenanceRecord",
+    "SystemSetting",
+    "ApprovalRequest",
 ]

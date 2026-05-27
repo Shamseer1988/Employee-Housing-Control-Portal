@@ -28,30 +28,14 @@ def _active_assignment_for(employee: Employee) -> AccommodationAssignment | None
     )
 
 
-def post_transfer(
-    *,
-    employee_id: int,
-    to_bed_id: int,
-    transfer_date=None,
-    reason: str | None = None,
-    remarks: str | None = None,
-    approved_by: int | None = None,
-    actor_id: int,
-) -> AccommodationTransfer:
-    employee = Employee.query.get(employee_id)
-    if employee is None:
-        raise AssignmentError("Employee not found")
-
-    active = _active_assignment_for(employee)
+def _validate_transfer(employee: Employee, active: AccommodationAssignment | None,
+                       to_bed: Bed | None, reason: str | None) -> None:
     if active is None:
         raise AssignmentError(
             "Employee has no active assignment to transfer from. Post an assignment instead."
         )
-
     if reason and reason not in TRANSFER_REASONS:
         raise AssignmentError(f"reason must be one of {sorted(TRANSFER_REASONS)}")
-
-    to_bed = Bed.query.get(to_bed_id)
     if to_bed is None:
         raise AssignmentError("Target bed not found")
     if to_bed.id == active.bed_id:
@@ -60,7 +44,6 @@ def post_transfer(
         raise AssignmentError(
             f"Target bed {to_bed.bed_code} is {to_bed.status}; only empty beds accept transfers"
         )
-
     to_room: Room = to_bed.room
     if to_room.occupancy_status in ("maintenance", "blocked"):
         raise AssignmentError(f"Target room is {to_room.occupancy_status}; cannot transfer in")
@@ -74,14 +57,73 @@ def post_transfer(
                 f"employee gender is {employee.gender or 'unknown'}"
             )
 
-    # ---- Close the old assignment & free the old bed ----
+
+def post_transfer(
+    *,
+    employee_id: int,
+    to_bed_id: int,
+    transfer_date=None,
+    reason: str | None = None,
+    remarks: str | None = None,
+    approved_by: int | None = None,
+    actor_id: int,
+) -> AccommodationTransfer:
+    from . import approvals as approval_service
+    from . import settings as settings_service
+
+    employee = Employee.query.get(employee_id)
+    if employee is None:
+        raise AssignmentError("Employee not found")
+
+    active = _active_assignment_for(employee)
+    to_bed = Bed.query.get(to_bed_id) if to_bed_id is not None else None
+    _validate_transfer(employee, active, to_bed, reason)
+
+    needs_approval = settings_service.get_bool("approval.transfer.required", False)
+    when_transfer = _parse_date(transfer_date, date.today())
+
+    transfer = AccommodationTransfer(
+        transaction_number=generate_txn_number("TRANS"),
+        employee_id=employee.id,
+        from_assignment_id=active.id,
+        to_assignment_id=active.id,  # placeholder; rewritten on completion
+        from_bed_id=active.bed_id,
+        to_bed_id=to_bed.id,
+        transfer_date=when_transfer,
+        reason=reason,
+        approved_by=approved_by,
+        remarks=remarks,
+        status="pending_approval" if needs_approval else "completed",
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    db.session.add(transfer)
+    db.session.flush()
+
+    if needs_approval:
+        approval_service.create_request(
+            module="transfer", entity=transfer, actor_id=actor_id,
+            summary=f"Transfer {employee.full_name}: {active.bed.bed_code} → {to_bed.bed_code}",
+        )
+        return transfer
+
+    _apply_transfer_side_effects(transfer, actor_id=actor_id)
+    return transfer
+
+
+def _apply_transfer_side_effects(transfer: AccommodationTransfer, *, actor_id: int) -> None:
+    employee = transfer.employee
+    active = AccommodationAssignment.query.get(transfer.from_assignment_id)
+    to_bed = Bed.query.get(transfer.to_bed_id)
+    if active is None or to_bed is None:
+        raise AssignmentError("Transfer references are missing")
+
     from_bed = active.bed
     from_room = active.room
-    old_bed_id = from_bed.id
 
     active.status = "transferred"
-    active.cancelled_at = _parse_date(transfer_date, date.today())
-    active.cancellation_reason = reason or "transfer"
+    active.cancelled_at = transfer.transfer_date
+    active.cancellation_reason = transfer.reason or "transfer"
     active.updated_by = actor_id
 
     from_bed.status = "empty"
@@ -89,40 +131,40 @@ def post_transfer(
     from_bed.updated_by = actor_id
     from_room.recompute_status()
 
-    # Clear employee.current_* so post_assignment's guards see a free employee
     employee.current_property_id = None
     employee.current_floor_id = None
     employee.current_room_id = None
     employee.current_bed_id = None
     db.session.flush()
 
-    # ---- Post a brand new assignment for the destination ----
     new_assignment = post_assignment(
         employee_id=employee.id,
         bed_id=to_bed.id,
-        assignment_date=transfer_date,
-        reason=f"transfer:{reason}" if reason else "transfer",
-        remarks=remarks,
-        approved_by=approved_by,
+        assignment_date=transfer.transfer_date,
+        reason=f"transfer:{transfer.reason}" if transfer.reason else "transfer",
+        remarks=transfer.remarks,
+        approved_by=transfer.approved_by,
         actor_id=actor_id,
     )
 
-    transfer = AccommodationTransfer(
-        transaction_number=generate_txn_number("TRANS"),
-        employee_id=employee.id,
-        from_assignment_id=active.id,
-        to_assignment_id=new_assignment.id,
-        from_bed_id=old_bed_id,
-        to_bed_id=to_bed.id,
-        transfer_date=_parse_date(transfer_date, date.today()),
-        reason=reason,
-        approved_by=approved_by,
-        remarks=remarks,
-        created_by=actor_id,
-        updated_by=actor_id,
-    )
-    db.session.add(transfer)
+    transfer.to_assignment_id = new_assignment.id
+    transfer.status = "completed"
+    transfer.updated_by = actor_id
     db.session.flush()
+
+
+def finalize_pending_transfer(transfer: AccommodationTransfer, *, actor_id: int) -> AccommodationTransfer:
+    if transfer.status != "pending_approval":
+        raise AssignmentError(f"Transfer is {transfer.status}, not pending_approval")
+    # Re-validate against current state in case another transaction took
+    # the target bed while this one was pending approval.
+    employee = transfer.employee
+    active = AccommodationAssignment.query.get(transfer.from_assignment_id)
+    to_bed = Bed.query.get(transfer.to_bed_id)
+    if active is None or active.status != "active":
+        raise AssignmentError("Source assignment is no longer active")
+    _validate_transfer(employee, active, to_bed, transfer.reason)
+    _apply_transfer_side_effects(transfer, actor_id=actor_id)
     return transfer
 
 
@@ -136,6 +178,9 @@ def post_cancellation(
     approved_by: int | None = None,
     actor_id: int,
 ) -> AccommodationCancellation:
+    from . import approvals as approval_service
+    from . import settings as settings_service
+
     employee = Employee.query.get(employee_id)
     if employee is None:
         raise AssignmentError("Employee not found")
@@ -146,45 +191,75 @@ def post_cancellation(
     if active is None:
         raise AssignmentError("Employee has no active assignment to cancel")
 
-    bed: Bed = active.bed
-    room: Room = active.room
     when = _parse_date(cancellation_date, date.today())
-
-    active.status = "cancelled"
-    active.cancelled_at = when
-    active.cancellation_reason = reason
-    active.closing_remarks = remarks
-    active.updated_by = actor_id
-
-    bed.status = "empty"
-    bed.current_employee_id = None
-    bed.updated_by = actor_id
-    room.recompute_status()
-
-    employee.current_property_id = None
-    employee.current_floor_id = None
-    employee.current_room_id = None
-    employee.current_bed_id = None
-    new_status = new_employee_status or _REASON_TO_STATUS.get(reason)
-    if new_status:
-        employee.status = new_status
-    employee.updated_by = actor_id
+    needs_approval = settings_service.get_bool("approval.cancellation.required", False)
+    resolved_new_status = new_employee_status or _REASON_TO_STATUS.get(reason)
 
     cancellation = AccommodationCancellation(
         transaction_number=generate_txn_number("CANCEL"),
         employee_id=employee.id,
         assignment_id=active.id,
-        bed_id=bed.id,
+        bed_id=active.bed_id,
         cancellation_date=when,
         reason=reason,
-        new_employee_status=new_status,
+        new_employee_status=resolved_new_status,
         approved_by=approved_by,
         remarks=remarks,
+        status="pending_approval" if needs_approval else "completed",
         created_by=actor_id,
         updated_by=actor_id,
     )
     db.session.add(cancellation)
     db.session.flush()
+
+    if needs_approval:
+        approval_service.create_request(
+            module="cancellation", entity=cancellation, actor_id=actor_id,
+            summary=f"Cancel {employee.full_name}'s bed {active.bed.bed_code} ({reason})",
+        )
+        return cancellation
+
+    _apply_cancellation_side_effects(cancellation, actor_id=actor_id)
+    return cancellation
+
+
+def _apply_cancellation_side_effects(cancellation: AccommodationCancellation, *, actor_id: int) -> None:
+    active = AccommodationAssignment.query.get(cancellation.assignment_id)
+    bed = Bed.query.get(cancellation.bed_id)
+    employee = cancellation.employee
+    if active is None or bed is None:
+        raise AssignmentError("Cancellation references are missing")
+    if active.status != "active":
+        raise AssignmentError(f"Underlying assignment is now {active.status}, not active")
+
+    active.status = "cancelled"
+    active.cancelled_at = cancellation.cancellation_date
+    active.cancellation_reason = cancellation.reason
+    active.closing_remarks = cancellation.remarks
+    active.updated_by = actor_id
+
+    bed.status = "empty"
+    bed.current_employee_id = None
+    bed.updated_by = actor_id
+    bed.room.recompute_status()
+
+    employee.current_property_id = None
+    employee.current_floor_id = None
+    employee.current_room_id = None
+    employee.current_bed_id = None
+    if cancellation.new_employee_status:
+        employee.status = cancellation.new_employee_status
+    employee.updated_by = actor_id
+
+    cancellation.status = "completed"
+    cancellation.updated_by = actor_id
+    db.session.flush()
+
+
+def finalize_pending_cancellation(cancellation: AccommodationCancellation, *, actor_id: int) -> AccommodationCancellation:
+    if cancellation.status != "pending_approval":
+        raise AssignmentError(f"Cancellation is {cancellation.status}, not pending_approval")
+    _apply_cancellation_side_effects(cancellation, actor_id=actor_id)
     return cancellation
 
 

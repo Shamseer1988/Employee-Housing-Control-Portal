@@ -25,6 +25,7 @@ class AccommodationTransfer(BaseModel):
     transfer_date = Column(Date, nullable=False, default=date.today)
     reason = Column(String(40), nullable=True)
     approved_by = Column(Integer, nullable=True)
+    status = Column(String(20), default="completed", nullable=False, index=True)
     remarks = Column(Text, nullable=True)
 
     employee = relationship("Employee", lazy="joined")
@@ -61,6 +62,7 @@ class AccommodationCancellation(BaseModel):
     reason = Column(String(32), nullable=False)
     new_employee_status = Column(String(16), nullable=True)
     approved_by = Column(Integer, nullable=True)
+    status = Column(String(20), default="completed", nullable=False, index=True)
     remarks = Column(Text, nullable=True)
 
     employee = relationship("Employee", lazy="joined")

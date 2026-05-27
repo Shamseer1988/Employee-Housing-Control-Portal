@@ -22,21 +22,9 @@ def _parse_date(value, fallback: date) -> date:
     return datetime.fromisoformat(str(value)).date()
 
 
-def post_assignment(
-    *,
-    employee_id: int,
-    bed_id: int,
-    assignment_date=None,
-    expected_stay_period: str | None = None,
-    reason: str | None = None,
-    remarks: str | None = None,
-    approved_by: int | None = None,
-    actor_id: int,
-) -> AccommodationAssignment:
-    """Post an accommodation assignment with full business-rule enforcement.
-
-    Caller is responsible for committing the session afterwards.
-    """
+def _validate_assignment(*, employee_id: int, bed_id: int,
+                         allow_pending_employee: bool = False) -> tuple[Employee, Bed, Room, Property]:
+    """Run all assignment guards. Returns the resolved ORM objects on success."""
     employee = Employee.query.get(employee_id)
     if employee is None:
         raise AssignmentError("Employee not found")
@@ -69,16 +57,53 @@ def post_assignment(
                 f"Room {room.room_number} only accepts {room.allowed_gender}; employee is {employee.gender}"
             )
 
-    active = (
+    statuses = ["active"]
+    if not allow_pending_employee:
+        statuses.append("pending_approval")
+    conflict = (
         AccommodationAssignment.query
-        .filter_by(employee_id=employee.id, status="active")
+        .filter_by(employee_id=employee.id)
+        .filter(AccommodationAssignment.status.in_(statuses))
         .first()
     )
-    if active is not None:
+    if conflict is not None:
+        verb = "active" if conflict.status == "active" else "pending"
         raise AssignmentError(
-            f"Employee already has an active assignment ({active.transaction_number} → bed {active.bed.bed_code}). "
-            "Use a transfer or cancel the existing assignment first."
+            f"Employee already has an {verb} assignment ({conflict.transaction_number} → bed {conflict.bed.bed_code}). "
+            "Use a transfer or cancel/resolve the existing assignment first."
         )
+    return employee, bed, room, property_
+
+
+def post_assignment(
+    *,
+    employee_id: int,
+    bed_id: int,
+    assignment_date=None,
+    expected_stay_period: str | None = None,
+    reason: str | None = None,
+    remarks: str | None = None,
+    approved_by: int | None = None,
+    actor_id: int,
+) -> AccommodationAssignment:
+    """Post an accommodation assignment.
+
+    Honours the ``approval.assignment.required`` system setting:
+      - If approval is required the transaction is created with
+        ``status="pending_approval"`` and an ``ApprovalRequest`` row is
+        added. Bed and employee state is **not** touched yet.
+      - Otherwise the side effects run immediately (current behaviour).
+    The caller is responsible for committing the session.
+    """
+    from . import approvals as approval_service
+    from . import settings as settings_service
+
+    employee, bed, room, property_ = _validate_assignment(
+        employee_id=employee_id, bed_id=bed_id,
+    )
+
+    needs_approval = settings_service.get_bool("approval.assignment.required", False)
+    initial_status = "pending_approval" if needs_approval else "active"
 
     txn = AccommodationAssignment(
         transaction_number=generate_transaction_number(),
@@ -92,27 +117,58 @@ def post_assignment(
         reason=reason,
         approved_by=approved_by,
         remarks=remarks,
-        status="active",
+        status=initial_status,
         created_by=actor_id,
         updated_by=actor_id,
     )
     db.session.add(txn)
+    db.session.flush()
 
+    if needs_approval:
+        approval_service.create_request(
+            module="assignment", entity=txn, actor_id=actor_id,
+            summary=f"Assign {employee.full_name} → {bed.bed_code} at {property_.name}",
+        )
+        return txn
+
+    _apply_assignment_side_effects(txn, actor_id=actor_id)
+    return txn
+
+
+def _apply_assignment_side_effects(txn: AccommodationAssignment, *, actor_id: int) -> None:
+    bed = txn.bed
+    room = bed.room
+    employee = txn.employee
     bed.status = "occupied"
     bed.current_employee_id = employee.id
     bed.updated_by = actor_id
 
-    employee.current_property_id = property_.id
-    employee.current_floor_id = room.floor_id
-    employee.current_room_id = room.id
+    employee.current_property_id = txn.property_id
+    employee.current_floor_id = txn.floor_id
+    employee.current_room_id = txn.room_id
     employee.current_bed_id = bed.id
     if employee.status in ("on_vacation", "transferred"):
         employee.status = "active"
     employee.updated_by = actor_id
 
     room.recompute_status()
-
     db.session.flush()
+
+
+def finalize_pending_assignment(txn: AccommodationAssignment, *, actor_id: int) -> AccommodationAssignment:
+    """Approve a pending assignment by re-validating and applying side effects."""
+    if txn.status != "pending_approval":
+        raise AssignmentError(f"Assignment is {txn.status}, not pending_approval")
+
+    # Re-run every guard against current state (the bed may have been taken
+    # by another transaction while this one was pending).
+    _validate_assignment(
+        employee_id=txn.employee_id, bed_id=txn.bed_id,
+        allow_pending_employee=True,
+    )
+    txn.status = "active"
+    txn.updated_by = actor_id
+    _apply_assignment_side_effects(txn, actor_id=actor_id)
     return txn
 
 

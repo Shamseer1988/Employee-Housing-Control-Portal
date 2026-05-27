@@ -31,6 +31,7 @@ class LandlordRenewal(BaseModel):
 
     remarks = Column(Text, nullable=True)
     approved_by = Column(Integer, nullable=True)
+    status = Column(String(20), default="completed", nullable=False, index=True)
 
     property = relationship("Property", lazy="joined")
     landlord = relationship("Landlord", lazy="joined")

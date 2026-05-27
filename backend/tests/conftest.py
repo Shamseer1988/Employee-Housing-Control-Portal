@@ -5,6 +5,7 @@ import pytest
 from app import create_app
 from app.extensions import db
 from app.cli import _seed_permissions, _seed_roles, _seed_super_user
+from app.services import settings as settings_service
 
 
 @pytest.fixture()
@@ -19,6 +20,7 @@ def app(tmp_path):
         perm_index = _seed_permissions()
         role_index = _seed_roles(perm_index)
         _seed_super_user(role_index)
+        settings_service.seed_defaults()
         db.session.commit()
         yield app
         db.session.remove()
