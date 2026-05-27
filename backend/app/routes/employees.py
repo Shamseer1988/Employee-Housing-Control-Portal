@@ -98,7 +98,7 @@ def create_employee():
         return error_response(f"Passport {passport} already exists", 409)
 
     actor = current_user()
-    code = (payload.get("code") or "").strip() or codes.next_code(Employee, "EMP", width=5)
+    code = (payload.get("code") or "").strip() or codes.next_code(Employee, codes.prefix_for("employee"), width=5)
     if Employee.query.filter_by(code=code).first():
         return error_response(f"Code {code} already exists", 409)
 

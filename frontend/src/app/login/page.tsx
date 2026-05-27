@@ -5,11 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Building2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-store";
+import { useCompanyName, useCompanyLogo } from "@/lib/public-settings";
 
 function LoginForm() {
   const router = useRouter();
   const search = useSearchParams();
   const { setSession, accessToken, hydrated } = useAuth();
+  const companyName = useCompanyName();
+  const logoUrl = useCompanyLogo();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -45,11 +48,16 @@ function LoginForm() {
     <div className="min-h-screen grid place-items-center p-4">
       <div className="glass-strong w-full max-w-md rounded-2xl p-8 animate-fade-in">
         <div className="flex items-center gap-3 mb-6">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-blue-600 grid place-items-center text-primary-foreground">
-            <Building2 className="h-5 w-5" />
-          </div>
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt="" className="h-10 w-10 rounded-xl object-cover" />
+          ) : (
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-blue-600 grid place-items-center text-primary-foreground">
+              <Building2 className="h-5 w-5" />
+            </div>
+          )}
           <div>
-            <h1 className="text-lg font-semibold">PUG Accommodation Portal</h1>
+            <h1 className="text-lg font-semibold">{companyName}</h1>
             <p className="text-xs text-muted-foreground">Sign in to your workspace</p>
           </div>
         </div>

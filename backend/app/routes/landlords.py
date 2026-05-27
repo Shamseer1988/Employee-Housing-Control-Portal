@@ -47,7 +47,7 @@ def create_landlord():
     if not name:
         return error_response("Name is required", 400)
     actor = current_user()
-    code = (payload.get("code") or "").strip() or codes.next_code(Landlord, "LL")
+    code = (payload.get("code") or "").strip() or codes.next_code(Landlord, codes.prefix_for("landlord"))
     if Landlord.query.filter(db.func.lower(Landlord.code) == code.lower()).first():
         return error_response("Code already exists", 409)
     ll = Landlord(code=code, name=name, created_by=actor.id, updated_by=actor.id)

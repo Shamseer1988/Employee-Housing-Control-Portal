@@ -50,7 +50,7 @@ def create_division():
     if not name:
         return error_response("Name is required", 400)
     actor = current_user()
-    code = (payload.get("code") or "").strip() or codes.next_code(Division, "DIV")
+    code = (payload.get("code") or "").strip() or codes.next_code(Division, codes.prefix_for("division"))
     if Division.query.filter(db.func.lower(Division.code) == code.lower()).first():
         return error_response("Code already exists", 409)
     div = Division(code=code, name=name, created_by=actor.id, updated_by=actor.id)

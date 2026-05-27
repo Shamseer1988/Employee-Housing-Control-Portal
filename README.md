@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 11 — Approval workflow complete.**
+> **Current status: Phase 12 — System settings complete.**
 
 ---
 
@@ -134,7 +134,7 @@ pytest -q
 |  9 | Dashboard cards, charts, alerts | ✅ Complete |
 | 10 | Reports + Excel/PDF export | ✅ Complete |
 | 11 | Approval workflow | ✅ Complete |
-| 12 | System settings | ⏳ |
+| 12 | System settings | ✅ Complete |
 | 13 | UI polish + responsive optimization | ⏳ |
 | 14 | Testing + production deployment | ⏳ |
 
@@ -654,21 +654,76 @@ Tests
   so a stolen bed surfaces "occupied", pending counts endpoint, and
   the synchronous path still works when the toggle is off).
 
-## Next phase plan
-
-**Phase 12 — System settings (full)**
+## What Phase 12 added
 
 Backend
-- Catalog of settings broken down by category (Company / Property /
-  Numbering / Approval / Alerts / Email / UI / Import / Security /
-  Backup / Audit), each with a type hint (`bool`, `int`, `string`,
-  `select`) so the UI can render the right control.
-- Per-section bulk update endpoint.
+- `services/settings.py` now declares a **catalog of 44 settings across
+  11 categories**: Company, Property, Numbering, Approval, Alerts,
+  Email, UI, Import/Export, Security, Backup, Audit. Each entry carries
+  a `type` hint (`bool` / `int` / `string` / `select` / `password` /
+  `textarea`), an optional `options` list for selects, an `is_secret`
+  flag, and human-readable `label` / `description` / `help`.
+- `set_value` coerces incoming values to the declared type (e.g. `"true"`
+  → `True`, `"2500"` → `2500`) and validates select options against the
+  catalog before writing.
+- New endpoints under `/api/v1/settings`:
+  - `GET /catalog` — settings grouped by category with full metadata
+    (secret values masked to `value: null, is_set: bool`).
+  - `GET /` — flat list, also masking secrets.
+  - `GET /public` — **unauthenticated** subset (`company.name`,
+    `company.logo_url`) for the login page and the topbar.
+  - `PUT /` — bulk update with `{ settings: { key: value, ... } }`.
+    Type coercion runs per key; an invalid value rolls back the whole
+    update.
+  - `PUT /<key>` — single-setting update (kept from Phase 11).
+- Numbering prefixes (`numbering.property.prefix`, `.landlord`,
+  `.division`, `.employee`) are now read from settings by
+  `services/codes.prefix_for(entity)` and used by every auto-code
+  generator (so `numbering.property.prefix=BLDG` immediately produces
+  `BLDG-0001` on the next property).
+- Audit log captures bulk updates with the new values (secret keys
+  redacted in the snapshot).
 
 Frontend
-- `/settings` becomes tabbed by category with section-level Save
-  buttons; each form renders from the catalog metadata.
-- Company branding (name / logo / address) surfaces in the topbar.
+- `/settings` is now a fully-tabbed page driven by the catalog. Left
+  rail lists every category with an icon, an active highlight, and an
+  amber dot when the section has unsaved changes. Right pane renders
+  the appropriate input per `type`:
+  - **string** → text input
+  - **textarea** → multi-line
+  - **int** → number input
+  - **bool** → toggle
+  - **select** → `<select>` with the catalog's options
+  - **password** → masked input with "set / not set" indicator that
+    only sends a value when the admin types one
+- Per-section **Save changes** and **Reset** buttons; drafts persist in
+  state per category so switching tabs doesn't lose work.
+- `useCompanyName()` / `useCompanyLogo()` hooks in
+  `lib/public-settings.ts` fetch `/settings/public` on first use and
+  cache via Zustand. The sidebar header now displays the configured
+  company name + logo (or falls back to a generated initial badge),
+  and the login page mirrors the same branding.
+- Sidebar phase tag bumped to v0.12.0.
+
+Tests
+- `pytest -q` → **99 passed** (8 new for the catalog grouping, public
+  endpoint, bulk update with coercion, invalid-select rejection,
+  single-setting update, secret-never-returned, numbering-prefix-takes-
+  effect, and the auth gate).
+
+## Next phase plan
+
+**Phase 13 — UI polish & responsive optimization**
+
+- Implement the `ui.accent_color`, `ui.glassmorphism`, `ui.compact_mode`,
+  `ui.sidebar_default_collapsed`, `ui.table_density` settings so they
+  actually change the rendered look. Theme provider reads them on load.
+- Mobile-first sidebar (hamburger drawer below `lg`), responsive tables
+  with horizontal scroll affordances on small screens.
+- Loading skeletons across all list pages instead of "Loading…" text.
+- Empty-state and error-state components reused everywhere.
+- Smooth Framer Motion transitions on dialogs and tab switches.
+- Accessibility pass: focus rings, ARIA labels on icon-only buttons.
 
 ---
 

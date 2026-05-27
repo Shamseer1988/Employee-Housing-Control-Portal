@@ -82,7 +82,7 @@ def create_property():
         return error_response(f"property_type must be one of {sorted(PROPERTY_TYPES)}", 400)
 
     actor = current_user()
-    code = (payload.get("code") or "").strip() or codes.next_code(Property, "PROP")
+    code = (payload.get("code") or "").strip() or codes.next_code(Property, codes.prefix_for("property"))
     if Property.query.filter(db.func.lower(Property.code) == code.lower()).first():
         return error_response("Code already exists", 409)
 

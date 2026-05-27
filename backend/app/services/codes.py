@@ -3,6 +3,21 @@ from sqlalchemy import func
 from ..extensions import db
 
 
+_PREFIX_DEFAULTS = {
+    "property": "PROP",
+    "landlord": "LL",
+    "division": "DIV",
+    "employee": "EMP",
+}
+
+
+def prefix_for(entity: str) -> str:
+    """Look up the configured numbering prefix for an entity, with fallback."""
+    from . import settings as settings_service
+    fallback = _PREFIX_DEFAULTS.get(entity, entity.upper()[:4])
+    return (settings_service.get(f"numbering.{entity}.prefix") or fallback).strip() or fallback
+
+
 def next_code(model, prefix: str, width: int = 4) -> str:
     """Generate the next sequential code like 'PROP-0001' for a model with a `code` column."""
     last = (

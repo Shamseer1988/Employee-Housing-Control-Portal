@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
 import { api } from "@/lib/api";
+import { useCompanyName, useCompanyLogo } from "@/lib/public-settings";
 
 type NavItem = { href: string; label: string; icon: typeof LayoutDashboard; perm?: string };
 
@@ -44,6 +45,8 @@ export function Sidebar() {
   const pathname = usePathname();
   const has = useAuth((s) => s.has);
   const [pendingTotal, setPendingTotal] = useState(0);
+  const companyName = useCompanyName();
+  const logoUrl = useCompanyLogo();
 
   useEffect(() => {
     if (!has("assignment.view")) return;
@@ -62,11 +65,16 @@ export function Sidebar() {
   return (
     <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-card/40 backdrop-blur-xl">
       <div className="flex h-16 items-center gap-2 px-6 border-b border-border">
-        <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-blue-600 grid place-items-center text-primary-foreground font-bold">
-          P
-        </div>
-        <div className="flex flex-col leading-tight">
-          <span className="text-sm font-semibold">PUG Group</span>
+        {logoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={logoUrl} alt="" className="h-8 w-8 rounded-lg object-cover" />
+        ) : (
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-blue-600 grid place-items-center text-primary-foreground font-bold">
+            {(companyName?.[0] ?? "P").toUpperCase()}
+          </div>
+        )}
+        <div className="flex flex-col leading-tight min-w-0">
+          <span className="text-sm font-semibold truncate" title={companyName}>{companyName}</span>
           <span className="text-xs text-muted-foreground">Accommodation</span>
         </div>
       </div>
@@ -98,7 +106,7 @@ export function Sidebar() {
         })}
       </nav>
       <div className="p-3 text-xs text-muted-foreground border-t border-border">
-        v0.11.0 · Phase 11
+        v0.12.0 · Phase 12
       </div>
     </aside>
   );

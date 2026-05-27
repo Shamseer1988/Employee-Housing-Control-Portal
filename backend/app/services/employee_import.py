@@ -8,7 +8,7 @@ from openpyxl import Workbook, load_workbook
 from ..extensions import db
 from ..models import Division, Employee, ImportBatch, ImportError as ImportErrorRow
 from ..models.employee import EMPLOYEE_STATUSES, ACCOMMODATION_TYPES, GENDERS
-from .codes import next_code
+from .codes import next_code, prefix_for
 
 
 TEMPLATE_COLUMNS: list[tuple[str, str]] = [
@@ -236,7 +236,7 @@ def import_workbook(
     created: list[Employee] = []
     for _, payload in parsed:
         if "code" not in payload:
-            payload["code"] = next_code(Employee, "EMP", width=5)
+            payload["code"] = next_code(Employee, prefix_for("employee"), width=5)
         emp = Employee(created_by=actor_id, updated_by=actor_id, **payload)
         db.session.add(emp)
         created.append(emp)
