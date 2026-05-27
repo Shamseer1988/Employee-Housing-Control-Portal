@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 6 — Employee accommodation assignment complete.**
+> **Current status: Phase 7 — Transfer, cancellation & vacation transactions complete.**
 
 ---
 
@@ -129,7 +129,7 @@ pytest -q
 |  4 | Floor, room, bed setup + occupancy summary | ✅ Complete |
 |  5 | Employee master + Excel import | ✅ Complete |
 |  6 | Employee room/bed assignment | ✅ Complete |
-|  7 | Transfer, bed change, cancellation, vacation, visa cancellation | ⏳ |
+|  7 | Transfer, bed change, cancellation, vacation, visa cancellation | ✅ Complete |
 |  8 | Landlord renewal + maintenance | ⏳ |
 |  9 | Dashboard cards, charts, alerts | ⏳ |
 | 10 | Reports + Excel/PDF export | ⏳ |
@@ -376,31 +376,83 @@ Tests
   accommodation guard, maintenance-bed guard, room status transitioning to
   `full` when both beds are taken, and assignment list filters).
 
-## Next phase plan
-
-**Phase 7 — Transfer, bed change, room change, cancellation, vacation**
+## What Phase 7 added
 
 Backend
-- `accommodation_transfers`, `accommodation_cancellations`,
-  `employee_vacations` tables that *close* the related assignment row and
-  open a new one, preserving full history.
-- Transfer service: validates the destination bed using the same guards as
-  Phase 6, then closes the existing assignment (`status="transferred"`),
-  empties the old bed, posts the new assignment.
-- Cancellation: closes the active assignment, empties the bed, captures
-  reason (resigned / terminated / visa_cancelled / shifted / vacation /
-  other), updates employee status when appropriate.
-- Vacation: optional bed reservation (`status="reserved"`) on outbound,
-  release-or-keep on return.
+- New models: `AccommodationTransfer`, `AccommodationCancellation`,
+  `EmployeeVacation` — each with its own monthly-sequenced transaction
+  number (`TRANS-YYYYMM-NNNN`, `CANCEL-YYYYMM-NNNN`, `VAC-YYYYMM-NNNN`).
+- `services/movements.py` — single source of truth for the three flows.
+  Every state change happens inside the service so audit / DB / cache
+  invariants stay locked together.
+- **Transfer** — runs every Phase-6 guard against the target bed (empty,
+  property active, room not blocked, gender match) and refuses same-bed
+  transfers. On success it closes the active assignment
+  (`status="transferred"`), empties the old bed, calls back into
+  `post_assignment()` for the new bed, and links the two assignments
+  through the transfer row.
+- **Cancellation** — closes the active assignment (`status="cancelled"`),
+  empties the bed, clears employee `current_*`, and rewrites
+  `employee.status` for closed reasons (`resigned` / `terminated` /
+  `visa_cancelled`); reason validated against a canonical set.
+- **Vacation** — `keep_bed_reserved=true` flips the bed to `reserved` and
+  keeps the assignment alive so a returning employee snaps back into the
+  same bed; `keep_bed_reserved=false` releases the bed (assignment closes
+  with reason `"vacation"`) and clears `current_*`. Employee status moves
+  to `on_vacation`.
+- **Return from vacation** — restores `bed.status` to `occupied` and
+  employee.status to `active` when the bed was held; otherwise the
+  employee comes back as `active` with no current bed and needs a fresh
+  assignment.
+- Endpoints under `/api/v1`:
+  - `GET/POST /transfers` (with `employee_id` filter on list)
+  - `GET/POST /cancellations`
+  - `GET/POST /vacations`, `POST /vacations/<id>/return`
+  - `GET /employees/<id>/timeline` — chronological union of assignments,
+    transfers, cancellations and vacations (powers the detail tab).
+- Audit log captures every post / return with the full transaction snapshot.
 
 Frontend
-- `/transactions/transfers/new` — wizard similar to assignment but picks
-  the *target* bed for an already-assigned employee.
-- `/transactions/cancellations/new` — pick active assignment, capture reason
-  & date, post.
-- `/transactions/vacations/new` — start / end dates, "keep bed reserved"
-  toggle.
-- Employee accommodation tab gains a movement timeline.
+- New list pages: `/transactions/transfers`, `/transactions/cancellations`,
+  `/transactions/vacations` (status filter + "Mark returned" action).
+- New wizards:
+  - `/transactions/transfers/new` — Employee → New bed (auto-filtered by
+    gender, hides current bed) → Confirm.
+  - `/transactions/cancellations/new` — Employee → reason / date / remarks.
+  - `/transactions/vacations/new` — Employee → start/end dates and a
+    "Keep bed reserved" toggle that explains both branches.
+- Reusable `<EmployeePicker>` component (drives all three wizards).
+- Employee detail **Accommodation tab** now shows a glassmorphism movement
+  timeline (assignment / transfer / cancellation / vacation) with status
+  tones and per-event details.
+- Sidebar phase tag bumped to v0.7.0.
+
+Tests
+- `pytest -q` → **51 passed** (11 new for transfer happy-path & guards,
+  cancellation flow + status mapping + reason validation, vacation with
+  reserved bed (round-trip), vacation that releases the bed, vacation
+  without an assignment, and employee timeline aggregation).
+
+## Next phase plan
+
+**Phase 8 — Landlord agreement renewal & maintenance**
+
+Backend
+- `landlord_renewals` table — captures the renewal event (old + new
+  expiry, new rent, attachment) and archives the previous property
+  agreement automatically.
+- `maintenance_records` table for property / room / bed maintenance with
+  start, end, reason, attachments.
+- Guard rails: a bed can only be flipped to maintenance via the
+  transaction, not via the existing manual status switch, when there is
+  no occupied employee in the room.
+
+Frontend
+- `/transactions/renewals/new` — choose property → review active agreement
+  → fill new dates / rent / attachment → post.
+- `/transactions/maintenance/new` — choose property/room/bed → reason →
+  expected end date.
+- Property detail Agreement tab links to the renewal transaction list.
 
 ---
 

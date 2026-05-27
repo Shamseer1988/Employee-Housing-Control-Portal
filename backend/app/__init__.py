@@ -35,6 +35,7 @@ def create_app(config_name: str | None = None) -> Flask:
     from .routes.beds import beds_bp
     from .routes.employees import employees_bp
     from .routes.assignments import assignments_bp
+    from .routes.movements import movements_bp
 
     app.register_blueprint(health_bp, url_prefix="/api/v1")
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
@@ -50,6 +51,7 @@ def create_app(config_name: str | None = None) -> Flask:
     app.register_blueprint(beds_bp, url_prefix="/api/v1")
     app.register_blueprint(employees_bp, url_prefix="/api/v1/employees")
     app.register_blueprint(assignments_bp, url_prefix="/api/v1")
+    app.register_blueprint(movements_bp, url_prefix="/api/v1")
 
     register_error_handlers(app)
     register_cli(app)

@@ -136,45 +136,130 @@ function ProfileTab({ emp }: { emp: Employee }) {
   );
 }
 
+type TimelineEvent = {
+  type: "assignment" | "transfer" | "cancellation" | "vacation";
+  date: string | null;
+  transaction_number: string;
+  status?: string;
+  bed_code?: string | null;
+  property?: string | null;
+  reason?: string | null;
+  remarks?: string | null;
+  closed_on?: string | null;
+  closed_reason?: string | null;
+  from_bed_code?: string | null;
+  to_bed_code?: string | null;
+  new_employee_status?: string | null;
+  end_date?: string | null;
+  return_date?: string | null;
+  keep_bed_reserved?: boolean;
+};
+
+const EVENT_TONE: Record<TimelineEvent["type"], string> = {
+  assignment: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  transfer: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+  cancellation: "bg-rose-500/10 text-rose-600 border-rose-500/30",
+  vacation: "bg-sky-500/10 text-sky-600 border-sky-500/30",
+};
+
 function AccommodationTab({ emp }: { emp: Employee }) {
-  if (!emp.accommodation_required) {
-    return <div className="glass rounded-xl p-10 text-center text-sm text-muted-foreground">This employee does not require accommodation.</div>;
-  }
-  if (!emp.current_bed) {
-    return (
-      <div className="glass rounded-xl p-10 text-center text-sm text-muted-foreground">
-        Not currently assigned to a bed. Use the assignment transaction (Phase 6) once it ships.
-      </div>
-    );
-  }
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await api.get(`/employees/${emp.id}/timeline`);
+        setTimeline(r.data.data);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [emp.id]);
+
   return (
-    <div className="glass rounded-xl p-4 space-y-3">
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <div>
-          <div className="text-xs uppercase tracking-wide text-muted-foreground">Property</div>
-          <div className="text-sm font-medium">
-            {emp.current_property ? (
-              <Link href={`/properties/${emp.current_property.id}`} className="hover:text-primary">
-                {emp.current_property.name} <span className="font-mono text-xs text-muted-foreground">({emp.current_property.code})</span>
-              </Link>
-            ) : "—"}
+    <div className="space-y-4">
+      {!emp.accommodation_required ? (
+        <div className="glass rounded-xl p-6 text-sm text-muted-foreground">
+          This employee does not require accommodation.
+        </div>
+      ) : !emp.current_bed ? (
+        <div className="glass rounded-xl p-6 text-sm text-muted-foreground">
+          Not currently assigned to a bed.{" "}
+          <Link href="/transactions/assignments/new" className="text-primary underline">Post an assignment</Link>.
+        </div>
+      ) : (
+        <div className="glass rounded-xl p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Property</div>
+            <div className="text-sm font-medium">
+              {emp.current_property ? (
+                <Link href={`/properties/${emp.current_property.id}`} className="hover:text-primary">
+                  {emp.current_property.name}
+                </Link>
+              ) : "—"}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Room</div>
+            <div className="text-sm font-medium">{emp.current_room?.room_number ?? "—"}</div>
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Bed code</div>
+            <div className="text-sm font-medium font-mono">{emp.current_bed.bed_code}</div>
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Type</div>
+            <div className="text-sm font-medium">{emp.accommodation_type ?? "—"}</div>
           </div>
         </div>
-        <div>
-          <div className="text-xs uppercase tracking-wide text-muted-foreground">Room</div>
-          <div className="text-sm font-medium">{emp.current_room?.room_number ?? "—"}</div>
-        </div>
-        <div>
-          <div className="text-xs uppercase tracking-wide text-muted-foreground">Bed code</div>
-          <div className="text-sm font-medium font-mono">{emp.current_bed.bed_code}</div>
-        </div>
-        <div>
-          <div className="text-xs uppercase tracking-wide text-muted-foreground">Accommodation type</div>
-          <div className="text-sm font-medium">{emp.accommodation_type ?? "—"}</div>
-        </div>
-      </div>
-      <div className="text-xs text-muted-foreground">
-        Movement history (transfer / cancellation / vacation) lands in Phase 7.
+      )}
+
+      <div className="glass rounded-xl p-4">
+        <div className="text-sm font-semibold mb-3">Movement history</div>
+        {loading ? (
+          <div className="text-sm text-muted-foreground">Loading…</div>
+        ) : timeline.length === 0 ? (
+          <div className="text-sm text-muted-foreground">No accommodation events yet.</div>
+        ) : (
+          <ol className="relative border-l border-border ml-3 space-y-3">
+            {[...timeline].reverse().map((e, i) => (
+              <li key={`${e.type}-${e.transaction_number}-${i}`} className="ml-4">
+                <div className={"absolute -left-1.5 mt-1 h-3 w-3 rounded-full border " + EVENT_TONE[e.type]} />
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className={"text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border " + EVENT_TONE[e.type]}>
+                    {e.type}
+                  </span>
+                  <span className="font-mono text-xs">{e.transaction_number}</span>
+                  <span className="text-xs text-muted-foreground font-mono">{e.date ?? "—"}</span>
+                </div>
+                <div className="text-sm mt-1">
+                  {e.type === "assignment" && (
+                    <>
+                      Assigned to <span className="font-mono text-xs">{e.bed_code}</span>
+                      {e.property && <> at {e.property}</>}
+                      {e.status && e.status !== "active" && <> · later <span className="capitalize">{e.status}</span>{e.closed_on && <> on {e.closed_on}</>}</>}
+                    </>
+                  )}
+                  {e.type === "transfer" && (
+                    <>Transferred <span className="font-mono text-xs">{e.from_bed_code}</span> → <span className="font-mono text-xs">{e.to_bed_code}</span></>
+                  )}
+                  {e.type === "cancellation" && (
+                    <>Released <span className="font-mono text-xs">{e.bed_code}</span> · {e.reason?.replaceAll("_", " ")}{e.new_employee_status && <> · status → {e.new_employee_status}</>}</>
+                  )}
+                  {e.type === "vacation" && (
+                    <>
+                      Vacation {e.keep_bed_reserved ? "(bed reserved)" : "(bed released)"}
+                      {e.end_date && <> · ends {e.end_date}</>}
+                      {e.return_date && <> · returned {e.return_date}</>}
+                    </>
+                  )}
+                </div>
+                {e.remarks && <div className="text-xs text-muted-foreground mt-0.5">{e.remarks}</div>}
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
     </div>
   );
