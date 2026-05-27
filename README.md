@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 13 — UI polish & responsive optimization complete.**
+> **Current status: Phase 14 — Testing & production deployment complete. 🎉 All 14 phases shipped.**
 
 ---
 
@@ -136,7 +136,7 @@ pytest -q
 | 11 | Approval workflow | ✅ Complete |
 | 12 | System settings | ✅ Complete |
 | 13 | UI polish + responsive optimization | ✅ Complete |
-| 14 | Testing + production deployment | ⏳ |
+| 14 | Testing + production deployment | ✅ Complete |
 
 See `docs/DEVELOPMENT_PROMPT.txt` for the canonical phase plan.
 
@@ -772,17 +772,81 @@ Tests
   extended to assert the new UI keys ship through).
 - Frontend: `tsc --noEmit` clean and `next build` green.
 
-## Next phase plan
+## What Phase 14 added
 
-**Phase 14 — Testing & production deployment**
+Frontend test framework
+- Vitest 2 + `@testing-library/react` + `jsdom`. Runs with
+  `npm test` (single pass) or `npm run test:watch`.
+- 13 unit tests across 3 files:
+  - `src/lib/auth-store.test.ts` — `has()` against missing user,
+    super user, `*` wildcard, explicit codes, and `setSession`
+    atomicity.
+  - `src/lib/public-settings.test.ts` — defaults, full API
+    merge, graceful failure when fetch rejects.
+  - `src/components/ui/states.test.tsx` — `<EmptyState>`,
+    `<ErrorState>` retry click, `<Skeleton>` className passthrough,
+    `<SkeletonTable>` row/column shape.
+- Manual path alias in `vitest.config.ts` (no ESM-only plugin) so
+  `@/*` imports work identically to Next.
 
-- Frontend Vitest / React-Testing-Library suite for the auth flow,
-  approval queue, and the report viewer.
-- Docker compose (Postgres + backend + nginx + frontend) ready to
-  drop on an Ubuntu host; sample `nginx.conf` and `gunicorn.conf.py`.
-- GitHub Actions workflow running pytest + tsc + next build on push.
-- Deployment runbook in `docs/DEPLOYMENT.md`: environment variables,
-  database backup/restore, log rotation, TLS via Cloudflare.
+Container build
+- `backend/Dockerfile` — multi-arch Python 3.11 image, drops to a
+  non-root `app` user, healthcheck against `/api/v1/health`,
+  gunicorn entrypoint reading `backend/gunicorn.conf.py`.
+- `frontend/Dockerfile` — three-stage build (deps → builder → runner)
+  on `node:20-alpine`, accepts a build-time `NEXT_PUBLIC_API_URL`
+  arg, runs as non-root with a `wget` healthcheck.
+- `deploy/Dockerfile.nginx` + `deploy/nginx.conf` — reverse-proxy in
+  front of both services, gzip, real-IP from Cloudflare
+  (`CF-Connecting-IP`), 30 MB upload limit, `/health` shortcut.
+- `backend/gunicorn.conf.py` — 2×cores+1 workers (cap 16),
+  4 threads, JSON-format access log to stdout, 60s timeout.
+
+Orchestration
+- `docker-compose.yml` wires `db` (Postgres 16-alpine) → `backend` →
+  `frontend` → `nginx`, with healthchecks ordering and named volumes
+  for Postgres data and uploads. `command:` runs
+  `flask db upgrade && flask seed && gunicorn …` on every boot
+  (both upgrade and seed are idempotent).
+- Root `.env.example` documents every variable; the only required
+  changes for a fresh box are `POSTGRES_PASSWORD`, `SECRET_KEY`,
+  `JWT_SECRET_KEY`, `SUPERUSER_PASSWORD`, and `PUBLIC_BASE_URL`.
+
+Backup / restore
+- `scripts/backup.sh` — gzipped `pg_dump` to
+  `backups/pug-YYYYMMDDTHHMMSSZ.sql.gz` + prune by retention.
+- `scripts/restore.sh` — confirms before dropping the schema and
+  piping a dump back in.
+
+CI / automation
+- `.github/workflows/ci.yml` runs on push and PR:
+  - **backend** job: `pip install`, `pytest -q --disable-warnings`.
+  - **frontend** job: `npm ci`, `npm run type-check`, `npm test`,
+    `npm run build`.
+  - **docker** job (gated on the two above): `docker compose build
+    --pull` to catch image-level regressions.
+
+Deployment docs
+- `docs/DEPLOYMENT.md` — full Ubuntu + Docker runbook covering
+  architecture, first-time setup, env reference, upgrades,
+  backup/restore + cron schedule, log rotation, TLS via Cloudflare
+  (Full-strict / `CF-Connecting-IP`), health checks, common ops
+  (re-seed, shell, password reset), and a troubleshooting table.
+
+Tests
+- Backend `pytest -q` → **99 passed** (unchanged).
+- Frontend `npm test` → **13 passed**, `tsc --noEmit` clean,
+  `next build` green.
+
+---
+
+## 🎉 Build complete
+
+All 14 phases from the blueprint are shipped. From here:
+- Run `cp .env.example .env`, fill in secrets, `docker compose up -d`,
+  open `http://localhost`, log in as `admin` with the password you set.
+- Push to GitHub to trigger the CI workflow; merge to `main` once green.
+- Schedule the cron backup line from `docs/DEPLOYMENT.md`.
 
 ---
 
