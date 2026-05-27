@@ -9,6 +9,7 @@ from .floor import Floor
 from .room import Room
 from .bed import Bed
 from .employee import Employee, ImportBatch, ImportError
+from .assignment import AccommodationAssignment
 
 __all__ = [
     "BaseModel",
@@ -30,4 +31,5 @@ __all__ = [
     "Employee",
     "ImportBatch",
     "ImportError",
+    "AccommodationAssignment",
 ]

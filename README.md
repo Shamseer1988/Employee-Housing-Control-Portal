@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 5 — Employee master + Excel import complete.**
+> **Current status: Phase 6 — Employee accommodation assignment complete.**
 
 ---
 
@@ -128,7 +128,7 @@ pytest -q
 |  3 | Division, landlord, property master + agreement | ✅ Complete |
 |  4 | Floor, room, bed setup + occupancy summary | ✅ Complete |
 |  5 | Employee master + Excel import | ✅ Complete |
-|  6 | Employee room/bed assignment | ⏳ |
+|  6 | Employee room/bed assignment | ✅ Complete |
 |  7 | Transfer, bed change, cancellation, vacation, visa cancellation | ⏳ |
 |  8 | Landlord renewal + maintenance | ⏳ |
 |  9 | Dashboard cards, charts, alerts | ⏳ |
@@ -320,23 +320,87 @@ Tests
   validation, filters, template download, Excel happy-path,
   validation-blocks-commit, and in-file-duplicate detection).
 
-## Next phase plan
-
-**Phase 6 — Employee accommodation assignment transaction**
+## What Phase 6 added
 
 Backend
-- `accommodation_assignments` model with transaction number, employee,
-  property/floor/room/bed, dates, reason, status (`active`/`cancelled`),
-  approval scaffolding for Phase 11.
-- Assignment posting logic: empty-bed-only, employee cannot hold two active
-  beds, updates `employee.current_*` and flips `bed.status` to `occupied`.
-- Available-bed query (filterable by property, gender, accommodation type).
+- `AccommodationAssignment` model with auto transaction number
+  `ASSIGN-YYYYMM-NNNN`, FKs to employee / property / floor / room / bed,
+  status (`active` / `cancelled` / `transferred`), reason, expected stay
+  period, approval slot for Phase 11, and an indexed `(employee_id, status)`
+  pair so duplicate-active-bed lookups stay O(1).
+- `services/assignments.py` (`post_assignment`) — single source of truth for
+  the posting rules. Every guard fires before any state change:
+  - employee must exist, be `accommodation_required`, and not in a closed
+    status (`resigned` / `terminated` / `visa_cancelled`)
+  - bed must be `empty` (not `occupied` / `reserved` / `maintenance` / `blocked`)
+  - parent room cannot be `maintenance` / `blocked`
+  - parent property must be `active`
+  - room gender filter (`any` / `male` / `female`) must match the employee
+  - employee cannot already hold an active assignment
+  After validation, the service flips `bed.status → occupied`, sets
+  `bed.current_employee_id`, fills `employee.current_property_id / floor_id /
+  room_id / bed_id`, clears `on_vacation` / `transferred` employee statuses,
+  and triggers `room.recompute_status()` so cards update on the next read.
+- Endpoints under `/api/v1`:
+  - `GET /assignments` — list with `employee_id` / `property_id` / `status`
+    filters
+  - `GET /assignments/<id>` — full transaction with employee / property /
+    room / bed snapshots
+  - `POST /assignments` — post a new assignment (the route is a thin shell
+    around the service; failures roll back cleanly)
+  - `GET /beds/available` — empty beds, filterable by property / floor /
+    room / gender. If `employee_id` is supplied and no explicit gender, the
+    employee's gender is used automatically so the picker never shows
+    incompatible rooms.
+- Audit log captures every post with the full transaction snapshot.
 
 Frontend
-- `/transactions/assignment` — wizard: pick employee → pick property → pick
-  available bed → review → post.
-- Employee accommodation tab gains the current assignment card with a
-  cancel/transfer action stub for Phase 7.
+- `/transactions` — hub of operational actions. Cards for assignment
+  (active), transfer / cancellation / vacation (Phase 7), renewal /
+  maintenance / bulk (Phase 8); each card is permission-gated and shows
+  "Phase 7/8" badges for upcoming items.
+- `/transactions/assignments` — list of every posted assignment with status
+  tone, employee / property / bed quick-links, and a status filter.
+- `/transactions/assignments/new` — 3-step wizard:
+  1. **Employee** — searchable list of unassigned, non-terminated employees
+     that need accommodation
+  2. **Bed** — available-bed grid (auto-filtered by the employee's gender),
+     property filter, capacity / type / amenity chips on every card
+  3. **Confirm** — review card, assignment date, reason picker, stay
+     period, remarks, post button
+- Sidebar phase tag bumped to v0.6.0.
+
+Tests
+- `pytest -q` → **40 passed** (9 new for available beds, happy-path posting,
+  duplicate-employee guard, occupied-bed guard, gender restriction, no-
+  accommodation guard, maintenance-bed guard, room status transitioning to
+  `full` when both beds are taken, and assignment list filters).
+
+## Next phase plan
+
+**Phase 7 — Transfer, bed change, room change, cancellation, vacation**
+
+Backend
+- `accommodation_transfers`, `accommodation_cancellations`,
+  `employee_vacations` tables that *close* the related assignment row and
+  open a new one, preserving full history.
+- Transfer service: validates the destination bed using the same guards as
+  Phase 6, then closes the existing assignment (`status="transferred"`),
+  empties the old bed, posts the new assignment.
+- Cancellation: closes the active assignment, empties the bed, captures
+  reason (resigned / terminated / visa_cancelled / shifted / vacation /
+  other), updates employee status when appropriate.
+- Vacation: optional bed reservation (`status="reserved"`) on outbound,
+  release-or-keep on return.
+
+Frontend
+- `/transactions/transfers/new` — wizard similar to assignment but picks
+  the *target* bed for an already-assigned employee.
+- `/transactions/cancellations/new` — pick active assignment, capture reason
+  & date, post.
+- `/transactions/vacations/new` — start / end dates, "keep bed reserved"
+  toggle.
+- Employee accommodation tab gains a movement timeline.
 
 ---
 
