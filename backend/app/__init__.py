@@ -30,6 +30,9 @@ def create_app(config_name: str | None = None) -> Flask:
     from .routes.landlords import landlords_bp
     from .routes.properties import properties_bp
     from .routes.attachments import attachments_bp
+    from .routes.floors import floors_bp
+    from .routes.rooms import rooms_bp
+    from .routes.beds import beds_bp
 
     app.register_blueprint(health_bp, url_prefix="/api/v1")
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
@@ -40,6 +43,9 @@ def create_app(config_name: str | None = None) -> Flask:
     app.register_blueprint(landlords_bp, url_prefix="/api/v1/landlords")
     app.register_blueprint(properties_bp, url_prefix="/api/v1/properties")
     app.register_blueprint(attachments_bp, url_prefix="/api/v1/attachments")
+    app.register_blueprint(floors_bp, url_prefix="/api/v1")
+    app.register_blueprint(rooms_bp, url_prefix="/api/v1")
+    app.register_blueprint(beds_bp, url_prefix="/api/v1")
 
     register_error_handlers(app)
     register_cli(app)

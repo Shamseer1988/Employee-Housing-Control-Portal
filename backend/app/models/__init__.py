@@ -5,6 +5,9 @@ from .division import Division
 from .landlord import Landlord
 from .property import Property, PropertyAgreement
 from .attachment import Attachment
+from .floor import Floor
+from .room import Room
+from .bed import Bed
 
 __all__ = [
     "BaseModel",
@@ -20,4 +23,7 @@ __all__ = [
     "Property",
     "PropertyAgreement",
     "Attachment",
+    "Floor",
+    "Room",
+    "Bed",
 ]

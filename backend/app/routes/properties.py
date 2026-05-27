@@ -2,8 +2,8 @@ from datetime import date, datetime
 from flask import Blueprint, request
 
 from ..extensions import db
-from ..models import Property, PropertyAgreement, Landlord, Division
-from ..services import audit, codes, reminders
+from ..models import Property, PropertyAgreement, Landlord, Division, Floor, Room, Bed
+from ..services import audit, codes, reminders, occupancy
 from ..utils.auth import require_permission, current_user
 from ..utils.responses import success_response, error_response
 
@@ -252,6 +252,45 @@ def update_agreement(prop_id: int, ag_id: int):
 
 
 # ---------- Reminders ----------
+
+@properties_bp.get("/<int:prop_id>/occupancy")
+@require_permission("property.view")
+def property_occupancy(prop_id: int):
+    Property.query.get_or_404(prop_id)
+    return success_response(data=occupancy.property_summary(prop_id))
+
+
+@properties_bp.get("/<int:prop_id>/structure")
+@require_permission("property.view")
+def property_structure(prop_id: int):
+    Property.query.get_or_404(prop_id)
+    floors = (
+        Floor.query.filter_by(property_id=prop_id)
+        .order_by(Floor.floor_number.asc())
+        .all()
+    )
+    out = []
+    for f in floors:
+        rooms = (
+            Room.query.filter_by(floor_id=f.id)
+            .order_by(Room.room_number.asc())
+            .all()
+        )
+        room_list = []
+        for r in rooms:
+            beds = (
+                Bed.query.filter_by(room_id=r.id)
+                .order_by(Bed.bed_number.asc())
+                .all()
+            )
+            r_dict = r.to_dict()
+            r_dict["beds"] = [b.to_dict() for b in beds]
+            room_list.append(r_dict)
+        f_dict = f.to_dict()
+        f_dict["rooms"] = room_list
+        out.append(f_dict)
+    return success_response(data=out, meta={"count": len(out)})
+
 
 @properties_bp.get("/agreements/expiring")
 @require_permission("property.view")

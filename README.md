@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 3 — Division, Landlord, Property masters + Agreement & Attachments complete.**
+> **Current status: Phase 4 — Floor, Room & Bed setup with occupancy summary complete.**
 
 ---
 
@@ -126,7 +126,7 @@ pytest -q
 |  1 | Project foundation (Flask app factory, Next.js shell, theme, health checks) | ✅ Complete |
 |  2 | Authentication, users, roles, permissions, audit log base | ✅ Complete |
 |  3 | Division, landlord, property master + agreement | ✅ Complete |
-|  4 | Floor, room, bed setup + occupancy summary | ⏳ |
+|  4 | Floor, room, bed setup + occupancy summary | ✅ Complete |
 |  5 | Employee master + Excel import | ⏳ |
 |  6 | Employee room/bed assignment | ⏳ |
 |  7 | Transfer, bed change, cancellation, vacation, visa cancellation | ⏳ |
@@ -232,22 +232,69 @@ Tests
 - `pytest -q` → **17 passed** (Phase 1 health, Phase 2 auth, Phase 3 masters/
   agreements/expiring buckets/attachment upload+download).
 
-## Next phase plan
-
-**Phase 4 — Floor, Room & Bed setup**
+## What Phase 4 added
 
 Backend
-- `floors`, `rooms`, `beds` models with cascade rules and indexes
-- Auto bed-code generator (`<property>-F<floor>-R<room>-B<bed>`)
-- Room capacity guard, bed-status state machine
-  (`empty` / `occupied` / `reserved` / `maintenance` / `blocked`)
-- Property occupancy summary (occupied, empty, reserved, maintenance, %)
+- Models: `Floor` (unique `floor_number` per property), `Room` (unique
+  `room_number` per floor, capacity + room type + gender + bathroom/AC),
+  `Bed` (globally unique `bed_code`, state machine status).
+- Auto bed code: `<property_code>-F<floor>-R<room>-B<bed>` e.g.
+  `PROP-0001-F1-R101-B1`. Regenerated when bed/room numbers change.
+- Room state machine: `empty` / `partially_occupied` / `full` / `maintenance`
+  / `blocked`. `recompute_status()` runs on every bed change; manual
+  `maintenance` / `blocked` overrides are sticky until explicitly cleared.
+- Bed state machine: `empty` / `occupied` / `reserved` / `maintenance` /
+  `blocked`. Manual transitions only allow operator moves
+  (`empty ↔ maintenance ↔ blocked`); `occupied` / `reserved` flips are
+  reserved for the Phase 6/7 assignment & vacation transactions.
+- Capacity guards:
+  - Cannot add a bed that would exceed `room.capacity`.
+  - Cannot shrink `room.capacity` below current bed count.
+  - Cannot delete a floor with rooms, or a room with beds, or an occupied bed.
+- Endpoints (all permission-gated):
+  - `properties/<id>/floors` (list/create), `floors/<id>` (update/delete)
+  - `floors/<id>/rooms` (list/create), `properties/<id>/rooms`,
+    `rooms/<id>` (get/update/delete), `rooms/<id>/status` (manual override)
+  - `rooms/<id>/beds` (list/create), `beds/<id>` (update/delete),
+    `beds/<id>/status`
+  - `properties/<id>/occupancy` — bed & room counts, plus occupancy %
+  - `properties/<id>/structure` — nested floors → rooms → beds for the UI
 
 Frontend
-- Property detail "Floors" tab — add/edit floors
-- Property detail "Rooms" tab — rooms grouped by floor, capacity & status badges
-- Bed grid view inside each room with one-click status changes
-- Occupancy progress bars on the property cards / dashboard
+- Property detail "Floors" tab: list / create / edit / delete floors with
+  status badges and live room counts.
+- Property detail "Rooms & Beds" tab: floor switcher, room cards grouped by
+  floor, expand a card to manage its beds. Inline form to add beds with
+  capacity guard, one-click maintenance / block / clear / delete, status
+  badges with tone, type & gender chips.
+- Top-level `/rooms` overview: group-wide bed totals, occupancy %, and a
+  responsive grid of property occupancy cards with progress bars linking
+  into each property detail.
+- All actions remain permission-gated via `<Can perm="…">`.
+
+Tests
+- `pytest -q` → **24 passed** (Phase 1–3 plus new floor/room/bed CRUD,
+  capacity guard, bed state machine, room status auto-recompute, structure
+  & occupancy endpoints, delete guards).
+
+## Next phase plan
+
+**Phase 5 — Employee master + Excel import**
+
+Backend
+- `employees` model with QID/passport uniqueness, accommodation status fields
+  and FKs into the bed currently held.
+- `attachments` already supports `entity_type="employee"` for QID, passport,
+  visa, contract.
+- Excel template download and Excel import endpoint with row-by-row
+  validation, `import_batches` + `import_errors` tracking, idempotent retry.
+
+Frontend
+- `/employees` master list with search, division filter, status badges and a
+  full CRUD dialog.
+- Document upload tab on each employee.
+- Excel import drawer: template download, file upload, preview, row error
+  table, post-on-confirm.
 
 ---
 

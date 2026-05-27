@@ -1,3 +1,3 @@
-from . import audit, permissions, codes, attachments, reminders
+from . import audit, permissions, codes, attachments, reminders, occupancy
 
-__all__ = ["audit", "permissions", "codes", "attachments", "reminders"]
+__all__ = ["audit", "permissions", "codes", "attachments", "reminders", "occupancy"]
