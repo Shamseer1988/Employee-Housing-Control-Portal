@@ -38,6 +38,7 @@ def create_app(config_name: str | None = None) -> Flask:
     from .routes.movements import movements_bp
     from .routes.renewals import renewals_bp
     from .routes.maintenance import maintenance_bp
+    from .routes.dashboard import dashboard_bp
 
     app.register_blueprint(health_bp, url_prefix="/api/v1")
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
@@ -56,6 +57,7 @@ def create_app(config_name: str | None = None) -> Flask:
     app.register_blueprint(movements_bp, url_prefix="/api/v1")
     app.register_blueprint(renewals_bp, url_prefix="/api/v1")
     app.register_blueprint(maintenance_bp, url_prefix="/api/v1")
+    app.register_blueprint(dashboard_bp, url_prefix="/api/v1/dashboard")
 
     register_error_handlers(app)
     register_cli(app)

@@ -75,7 +75,7 @@ export function Sidebar() {
         })}
       </nav>
       <div className="p-3 text-xs text-muted-foreground border-t border-border">
-        v0.8.0 · Phase 8
+        v0.9.0 · Phase 9
       </div>
     </aside>
   );

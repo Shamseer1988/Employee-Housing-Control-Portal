@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, LogOut, Search, UserCircle2 } from "lucide-react";
+import { LogOut, Search, UserCircle2 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NotificationBell } from "@/components/notification-bell";
 import { useAuth } from "@/lib/auth-store";
 import { api } from "@/lib/api";
 
@@ -34,13 +35,7 @@ export function Topbar() {
           />
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <button
-            aria-label="Notifications"
-            className="relative inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card/60 hover:bg-accent"
-          >
-            <Bell className="h-4 w-4" />
-            <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-destructive" />
-          </button>
+          <NotificationBell />
           <ThemeToggle />
           <div className="relative">
             <button

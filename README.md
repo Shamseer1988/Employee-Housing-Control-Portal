@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 8 — Landlord renewal & maintenance transactions complete.**
+> **Current status: Phase 9 — Dashboard cards, charts & alert center complete.**
 
 ---
 
@@ -131,7 +131,7 @@ pytest -q
 |  6 | Employee room/bed assignment | ✅ Complete |
 |  7 | Transfer, bed change, cancellation, vacation, visa cancellation | ✅ Complete |
 |  8 | Landlord renewal & maintenance | ✅ Complete |
-|  9 | Dashboard cards, charts, alerts | ⏳ |
+|  9 | Dashboard cards, charts, alerts | ✅ Complete |
 | 10 | Reports + Excel/PDF export | ⏳ |
 | 11 | Approval workflow | ⏳ |
 | 12 | System settings | ⏳ |
@@ -492,26 +492,69 @@ Tests
   completion, duplicate-open-record guard, property maintenance
   round-trip, list filters).
 
-## Next phase plan
-
-**Phase 9 — Dashboard cards, charts, and alert center**
+## What Phase 9 added
 
 Backend
-- Aggregate endpoint(s) for dashboard KPIs: total properties / beds /
-  occupied / empty / reserved / maintenance / occupancy %; employees
-  assigned / not assigned / on vacation; agreement expiry summary
-  (already available via `/properties/agreements/expiring`).
-- Recent activity feed (assignments, transfers, cancellations,
-  vacations, renewals, maintenance — last N items).
-- Alert digest (expiry buckets + over-capacity rooms + unassigned employees
-  + pending approvals + maintenance in progress).
+- New `services/dashboard.py` with grouped aggregate queries (using
+  `case + sum` for portable per-status counts):
+  - `summary()` — KPIs for properties, rooms, beds (incl. occupancy %),
+    employees by status, agreements expiry bucket summary, maintenance counts.
+  - `recent_activity()` — chronological union of assignments, transfers,
+    cancellations, vacations, renewals, maintenance with employee /
+    property snapshots.
+  - `alerts()` — grouped by **critical** (expired agreements, expiring
+    within 7d, over-capacity rooms), **warning** (expiring within 30d,
+    unassigned employees needing accommodation), **info** (expiring
+    within 90d, maintenance in progress). Returns counts per severity
+    for the notification badge.
+  - Chart endpoints: `occupancy_by_property()` (per-property bed totals
+    + status breakdown), `occupancy_by_division()`,
+    `monthly_movement(months=6)` (per-month assignments / transfers /
+    cancellations / vacations using SQLite `strftime`, with a Postgres
+    `to_char` fallback for production).
+- Endpoints under `/api/v1/dashboard`: `/summary`, `/activity`, `/alerts`,
+  `/charts/occupancy-by-property`, `/charts/occupancy-by-division`,
+  `/charts/monthly-movement`. All gated by `dashboard.view`.
 
 Frontend
-- Dashboard page replaces the Phase 1 placeholder cards with live data,
-  Recharts visualisations (occupancy by property, bed-status pie,
-  monthly movement bar), and a notification bell that opens a drawer of
-  the alert digest.
-- Clicking a card drills into the matching report / list page.
+- `/dashboard` — replaces the Phase 1 placeholder with eight live KPI
+  cards (properties, beds, occupied, employees assigned, on vacation,
+  maintenance, agreements, pending), each clickable through to the
+  relevant list page. Charts: stacked bar of occupancy by property
+  (top 10), bed-status donut, multi-series line for monthly movement,
+  and an inline recent-activity panel. Tones flip red/amber/green based
+  on the underlying numbers.
+- Notification bell in the topbar polls `/dashboard/alerts` every minute,
+  shows a coloured badge with the critical + warning count, and opens a
+  side drawer grouped by severity with direct links into the relevant
+  property / employee / maintenance pages.
+- `/alerts` — full-page version of the digest grouped by severity with
+  expandable lists per category. Hidden sections collapse to keep the
+  view tidy when everything is healthy.
+- Sidebar phase tag bumped to v0.9.0.
+
+Tests
+- `pytest -q` → **67 passed** (6 new for dashboard summary, alerts
+  digest, activity feed, occupancy-by-property chart, monthly movement
+  chart, and the permission gate).
+
+## Next phase plan
+
+**Phase 10 — Reports & export**
+
+Backend
+- Report endpoints with shared filter parameters (property / division /
+  date range / status) — property occupancy, room-wise allocation,
+  empty/full rooms, employee accommodation history, agreement expiry,
+  vacation, visa-cancelled, maintenance, mixed-division, monthly
+  movement, audit trail.
+- Excel export (openpyxl) and a PDF/print-friendly HTML view.
+
+Frontend
+- `/reports` index with category cards (Occupancy · Employees · Property
+  · Operations · Audit).
+- Per-report page with TanStack Table, sticky header, column visibility,
+  saved filters in localStorage, Excel download button, print stylesheet.
 
 ---
 
