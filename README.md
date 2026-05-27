@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 7 — Transfer, cancellation & vacation transactions complete.**
+> **Current status: Phase 8 — Landlord renewal & maintenance transactions complete.**
 
 ---
 
@@ -130,7 +130,7 @@ pytest -q
 |  5 | Employee master + Excel import | ✅ Complete |
 |  6 | Employee room/bed assignment | ✅ Complete |
 |  7 | Transfer, bed change, cancellation, vacation, visa cancellation | ✅ Complete |
-|  8 | Landlord renewal + maintenance | ⏳ |
+|  8 | Landlord renewal & maintenance | ✅ Complete |
 |  9 | Dashboard cards, charts, alerts | ⏳ |
 | 10 | Reports + Excel/PDF export | ⏳ |
 | 11 | Approval workflow | ⏳ |
@@ -433,26 +433,85 @@ Tests
   reserved bed (round-trip), vacation that releases the bed, vacation
   without an assignment, and employee timeline aggregation).
 
-## Next phase plan
-
-**Phase 8 — Landlord agreement renewal & maintenance**
+## What Phase 8 added
 
 Backend
-- `landlord_renewals` table — captures the renewal event (old + new
-  expiry, new rent, attachment) and archives the previous property
-  agreement automatically.
-- `maintenance_records` table for property / room / bed maintenance with
-  start, end, reason, attachments.
-- Guard rails: a bed can only be flipped to maintenance via the
-  transaction, not via the existing manual status switch, when there is
-  no occupied employee in the room.
+- New models:
+  - `LandlordRenewal` (`LRENEW-YYYYMM-NNNN`) — captures the renewal event
+    with FKs to the old + new `property_agreements` row, snapshots of
+    old/new expiry & rent, renewal date and approver. Both agreement
+    columns serialize to nested dicts in `to_dict`, so a single GET
+    /renewals call gives the UI everything it needs.
+  - `MaintenanceRecord` (`MAINT-YYYYMM-NNNN`) — generic record over
+    property / room / bed, with `entity_type` + `entity_id`,
+    `prior_status` (so completion can restore), planned and actual end
+    dates, reason, status (`in_progress` / `completed` / `cancelled`),
+    indexed (`entity_type`, `entity_id`) and (`status`, `entity_type`).
+- `services/renewals.py` — single-call renewal that archives every
+  existing active agreement for the property (sets `is_active=false`,
+  `renewal_status="renewed"`), inserts the new agreement and writes the
+  linking `LandlordRenewal` row. Validates inverted dates.
+- `services/maintenance.py` — `start_maintenance`, `complete_maintenance`,
+  `cancel_maintenance`. Refuses to start when:
+  - bed is `occupied` or `reserved`,
+  - room has any occupied bed (operator must transfer/release first),
+  - a record is already in progress for the same entity.
+  On start it captures the prior status; on completion it restores —
+  rooms recompute from current bed states so derived statuses
+  (`partially_occupied` / `full`) are correct.
+- Endpoints under `/api/v1`:
+  - `GET/POST /renewals` (filter by `property_id` / `landlord_id`)
+  - `GET/POST /maintenance` (filter by `entity_type`, `entity_id`,
+    `property_id`, `status`)
+  - `POST /maintenance/<id>/complete`, `POST /maintenance/<id>/cancel`
+- Phase-6 assignment service already refuses `maintenance` beds, so the
+  guards compose cleanly with no additional code.
+- Audit log captures every renewal / maintenance start / complete /
+  cancel with the full transaction snapshot.
 
 Frontend
-- `/transactions/renewals/new` — choose property → review active agreement
-  → fill new dates / rent / attachment → post.
-- `/transactions/maintenance/new` — choose property/room/bed → reason →
-  expected end date.
-- Property detail Agreement tab links to the renewal transaction list.
+- `/transactions/renewals` — table of every renewal with old → new rent,
+  old expiry → new expiry, links into the property.
+- `/transactions/renewals/new` — picks a property, surfaces its active
+  agreement (landlord, expiry, rent, terms) and pre-fills the landlord /
+  rent / terms for the new agreement, with a warning that the current
+  agreement will be archived on submit.
+- `/transactions/maintenance` — list with entity-type and status filters,
+  semantic status tones, inline **Complete** and **Cancel** actions on
+  in-progress rows.
+- `/transactions/maintenance/new` — pick target type (property/room/bed),
+  cascading selectors (property → room → bed) using
+  `/properties/<id>/structure`, with bed options disabled when occupied
+  or reserved.
+- Sidebar phase tag bumped to v0.8.0.
+
+Tests
+- `pytest -q` → **61 passed** (10 new for renewal archiving + transaction
+  capture, no-prior-agreement, inverted-date guard, bed maintenance ⇄
+  assignment guard, occupied-bed/room rejection, room-recompute on
+  completion, duplicate-open-record guard, property maintenance
+  round-trip, list filters).
+
+## Next phase plan
+
+**Phase 9 — Dashboard cards, charts, and alert center**
+
+Backend
+- Aggregate endpoint(s) for dashboard KPIs: total properties / beds /
+  occupied / empty / reserved / maintenance / occupancy %; employees
+  assigned / not assigned / on vacation; agreement expiry summary
+  (already available via `/properties/agreements/expiring`).
+- Recent activity feed (assignments, transfers, cancellations,
+  vacations, renewals, maintenance — last N items).
+- Alert digest (expiry buckets + over-capacity rooms + unassigned employees
+  + pending approvals + maintenance in progress).
+
+Frontend
+- Dashboard page replaces the Phase 1 placeholder cards with live data,
+  Recharts visualisations (occupancy by property, bed-status pie,
+  monthly movement bar), and a notification bell that opens a drawer of
+  the alert digest.
+- Clicking a card drills into the matching report / list page.
 
 ---
 

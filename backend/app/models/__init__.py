@@ -13,6 +13,7 @@ from .assignment import AccommodationAssignment
 from .movement import (
     AccommodationTransfer, AccommodationCancellation, EmployeeVacation,
 )
+from .renewal_maintenance import LandlordRenewal, MaintenanceRecord
 
 __all__ = [
     "BaseModel",
@@ -38,4 +39,6 @@ __all__ = [
     "AccommodationTransfer",
     "AccommodationCancellation",
     "EmployeeVacation",
+    "LandlordRenewal",
+    "MaintenanceRecord",
 ]
