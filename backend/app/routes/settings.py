@@ -35,10 +35,14 @@ def catalog():
 
 @settings_bp.get("/public")
 def public_settings():
-    """Tiny subset exposed without auth for the login page (company name,
-    logo, etc.)."""
+    """Tiny subset exposed without auth — branding + UI preferences so the
+    login page and the initial theme render correctly before sign-in."""
     out = {}
-    for key in ("company.name", "company.logo_url"):
+    for key in (
+        "company.name", "company.logo_url",
+        "ui.accent_color", "ui.glassmorphism", "ui.compact_mode",
+        "ui.sidebar_default_collapsed", "ui.table_density",
+    ):
         out[key] = settings_service.get(key)
     return success_response(data=out)
 

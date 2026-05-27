@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, Pencil, Upload, Download, UserX, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Upload, Download, UserX, ChevronRight, Users as UsersIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { Modal, Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
+import { SkeletonTable } from "@/components/ui/states";
 
 type Division = { id: number; code: string; name: string };
 
@@ -144,10 +145,17 @@ export default function EmployeesPage() {
                 <th className="py-2 pr-4 text-right">Actions</th>
               </tr>
             </thead>
+            {loading && <SkeletonTable rows={6} columns={9} />}
             <tbody>
-              {loading ? <tr><td colSpan={9} className="py-10 text-center text-muted-foreground">Loading…</td></tr>
-              : rows.length === 0 ? <tr><td colSpan={9} className="py-10 text-center text-muted-foreground">No employees yet</td></tr>
-              : rows.map((e) => (
+              {!loading && rows.length === 0 ? (
+                <tr><td colSpan={9} className="py-10 text-center">
+                  <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                    <UsersIcon className="h-4 w-4" />
+                    No employees match. Adjust the filters or import from Excel.
+                  </div>
+                </td></tr>
+              )
+              : !loading && rows.map((e) => (
                 <tr key={e.id} className="border-b border-border/60 hover:bg-accent/30">
                   <td className="py-2 pr-4 font-mono text-xs">{e.code}</td>
                   <td className="py-2 pr-4 font-medium">
@@ -176,11 +184,13 @@ export default function EmployeesPage() {
                   <td className="py-2 pr-4 text-right">
                     <Can perm="employee.edit">
                       <button onClick={() => { setEditing(e); setShowForm(true); }}
+                        aria-label={`Edit ${e.full_name}`}
                         className="h-8 w-8 grid place-items-center rounded-md hover:bg-accent inline-block">
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                       {e.status !== "terminated" && (
                         <button onClick={() => deactivate(e)}
+                          aria-label={`Deactivate ${e.full_name}`}
                           className="h-8 w-8 grid place-items-center rounded-md hover:bg-destructive/10 text-destructive inline-block">
                           <UserX className="h-3.5 w-3.5" />
                         </button>

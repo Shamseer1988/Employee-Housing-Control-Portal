@@ -21,8 +21,15 @@ def test_public_settings_no_auth_needed(client):
     resp = client.get("/api/v1/settings/public")
     assert resp.status_code == 200
     data = resp.get_json()["data"]
+    # Branding fields
     assert "company.name" in data
     assert "company.logo_url" in data
+    # UI fields (Phase 13) used by the theme bridge
+    for key in (
+        "ui.accent_color", "ui.glassmorphism", "ui.compact_mode",
+        "ui.sidebar_default_collapsed", "ui.table_density",
+    ):
+        assert key in data
 
 
 def test_bulk_update_settings(client, auth_headers):

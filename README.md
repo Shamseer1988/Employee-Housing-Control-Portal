@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 12 — System settings complete.**
+> **Current status: Phase 13 — UI polish & responsive optimization complete.**
 
 ---
 
@@ -135,7 +135,7 @@ pytest -q
 | 10 | Reports + Excel/PDF export | ✅ Complete |
 | 11 | Approval workflow | ✅ Complete |
 | 12 | System settings | ✅ Complete |
-| 13 | UI polish + responsive optimization | ⏳ |
+| 13 | UI polish + responsive optimization | ✅ Complete |
 | 14 | Testing + production deployment | ⏳ |
 
 See `docs/DEVELOPMENT_PROMPT.txt` for the canonical phase plan.
@@ -711,19 +711,78 @@ Tests
   single-setting update, secret-never-returned, numbering-prefix-takes-
   effect, and the auth gate).
 
+## What Phase 13 added
+
+Live UI settings
+- `/api/v1/settings/public` now returns the five `ui.*` keys
+  (`accent_color`, `glassmorphism`, `compact_mode`,
+  `sidebar_default_collapsed`, `table_density`) in addition to the
+  branding fields. The public endpoint stays unauthenticated so the
+  theme renders correctly even before sign-in.
+- `lib/public-settings.ts` exposes them through a typed Zustand store
+  (`useCompanyName`, `useCompanyLogo` plus the full UI block).
+- New `<ThemeBridge>` component mounted at the root: writes the
+  `--primary` and `--ring` HSL CSS variables for the chosen accent
+  (blue / emerald / violet / amber / rose) and sets `data-glass`,
+  `data-compact`, `data-density` attributes on `<html>`.
+- `globals.css` reacts to those attributes — turning off
+  glassmorphism produces solid cards, compact mode tightens padding,
+  and table density adjusts row vertical padding across every table
+  in the app. A `:focus-visible` global rule restores the accent
+  ring on every focusable element.
+
+Responsive shell
+- New `<MobileNav>` Framer-Motion side drawer with the same nav,
+  permissions, and pending-approval badge as the desktop sidebar.
+  Triggered by a hamburger button that only appears below `lg`.
+- Topbar tightens its padding on small screens and hides the search
+  box on `<sm`; the user menu and bell still fit comfortably.
+- `min-w-0` on the main container so wide tables now scroll within
+  their card instead of pushing the layout off-screen.
+
+Reusable status components (`components/ui/states.tsx`)
+- `<Skeleton>` — pulsing placeholder block.
+- `<SkeletonTable rows columns>` — drops straight into a `<table>` for
+  list pages while data loads.
+- `<EmptyState icon title hint action>` — for grids and detail panels.
+- `<ErrorState title message onRetry>` — matching destructive variant.
+
+Motion & a11y polish
+- `<Modal>` rewritten with `AnimatePresence`, scale + fade transitions,
+  Esc-to-close, `role="dialog"` + `aria-modal`.
+- `<RouteProgress>` strip at the very top of the app pulses on every
+  navigation — quick visual feedback without pulling in NProgress.
+- Icon-only buttons gain descriptive `aria-label`s in the employees
+  list, attachments table, and elsewhere they were ambiguous.
+- The shared `<AttachmentsTab>` moved to
+  `components/attachments-tab.tsx` (Next disallows non-page exports
+  from a page file). Employees and property detail import it from there.
+
+Refactor / fixes done along the way
+- Renamed a `Record` shadow type in
+  `transactions/maintenance/page.tsx` so it stops colliding with TS's
+  built-in `Record<K, V>` utility.
+- Switched `<ThemeProvider>` to derive its props from the
+  `next-themes` component type, fixing the missing
+  `ThemeProviderProps` import.
+- `npx next build` now produces a clean production build.
+
+Tests
+- `pytest -q` → **99 passed** (the existing public-settings test
+  extended to assert the new UI keys ship through).
+- Frontend: `tsc --noEmit` clean and `next build` green.
+
 ## Next phase plan
 
-**Phase 13 — UI polish & responsive optimization**
+**Phase 14 — Testing & production deployment**
 
-- Implement the `ui.accent_color`, `ui.glassmorphism`, `ui.compact_mode`,
-  `ui.sidebar_default_collapsed`, `ui.table_density` settings so they
-  actually change the rendered look. Theme provider reads them on load.
-- Mobile-first sidebar (hamburger drawer below `lg`), responsive tables
-  with horizontal scroll affordances on small screens.
-- Loading skeletons across all list pages instead of "Loading…" text.
-- Empty-state and error-state components reused everywhere.
-- Smooth Framer Motion transitions on dialogs and tab switches.
-- Accessibility pass: focus rings, ARIA labels on icon-only buttons.
+- Frontend Vitest / React-Testing-Library suite for the auth flow,
+  approval queue, and the report viewer.
+- Docker compose (Postgres + backend + nginx + frontend) ready to
+  drop on an Ubuntu host; sample `nginx.conf` and `gunicorn.conf.py`.
+- GitHub Actions workflow running pytest + tsc + next build on push.
+- Deployment runbook in `docs/DEPLOYMENT.md`: environment variables,
+  database backup/restore, log rotation, TLS via Cloudflare.
 
 ---
 

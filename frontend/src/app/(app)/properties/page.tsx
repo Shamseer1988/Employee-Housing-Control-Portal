@@ -6,6 +6,7 @@ import { Plus, Building2, MapPin, AlertTriangle } from "lucide-react";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { Modal, Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
+import { Skeleton, EmptyState } from "@/components/ui/states";
 
 type Property = {
   id: number;
@@ -93,9 +94,29 @@ export default function PropertiesPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          {loading && <div className="col-span-full text-center text-sm text-muted-foreground py-10">Loading…</div>}
+          {loading && Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="glass rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-9 w-9 rounded-lg" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-3 w-2/3" />
+                  <Skeleton className="h-3 w-1/3" />
+                </div>
+              </div>
+              <Skeleton className="h-3 w-1/2" />
+              <div className="grid grid-cols-3 gap-2">
+                <Skeleton className="h-10" /><Skeleton className="h-10" /><Skeleton className="h-10" />
+              </div>
+            </div>
+          ))}
           {!loading && rows.length === 0 && (
-            <div className="col-span-full text-center text-sm text-muted-foreground py-10">No properties yet</div>
+            <div className="col-span-full">
+              <EmptyState
+                icon={Building2}
+                title="No properties yet"
+                hint="Create your first property to start tracking floors, rooms and beds."
+              />
+            </div>
           )}
           {rows.map((p) => {
             const expiry = p.active_agreement?.expiry_date;

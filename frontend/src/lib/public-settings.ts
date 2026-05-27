@@ -1,20 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { create } from "zustand";
+
+export type AccentColor = "blue" | "emerald" | "violet" | "amber" | "rose";
+export type TableDensity = "compact" | "comfortable" | "spacious";
 
 type PublicSettings = {
   companyName: string;
   logoUrl: string | null;
+  accentColor: AccentColor;
+  glassmorphism: boolean;
+  compactMode: boolean;
+  sidebarDefaultCollapsed: boolean;
+  tableDensity: TableDensity;
   loaded: boolean;
   load: () => Promise<void>;
 };
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
+const DEFAULT_NAME = process.env.NEXT_PUBLIC_APP_NAME || "PUG Accommodation Portal";
+
 export const usePublicSettings = create<PublicSettings>((set, get) => ({
-  companyName: process.env.NEXT_PUBLIC_APP_NAME || "PUG Accommodation Portal",
+  companyName: DEFAULT_NAME,
   logoUrl: null,
+  accentColor: "blue",
+  glassmorphism: true,
+  compactMode: false,
+  sidebarDefaultCollapsed: false,
+  tableDensity: "comfortable",
   loaded: false,
   load: async () => {
     if (get().loaded) return;
@@ -23,9 +38,16 @@ export const usePublicSettings = create<PublicSettings>((set, get) => ({
       if (!resp.ok) return;
       const body = await resp.json();
       const data = body?.data ?? {};
+      const accent = (data["ui.accent_color"] ?? "blue") as AccentColor;
+      const density = (data["ui.table_density"] ?? "comfortable") as TableDensity;
       set({
         companyName: data["company.name"] || get().companyName,
         logoUrl: data["company.logo_url"] || null,
+        accentColor: accent,
+        glassmorphism: data["ui.glassmorphism"] !== false,
+        compactMode: data["ui.compact_mode"] === true,
+        sidebarDefaultCollapsed: data["ui.sidebar_default_collapsed"] === true,
+        tableDensity: density,
         loaded: true,
       });
     } catch {
@@ -52,20 +74,7 @@ export function useCompanyLogo() {
   return usePublicSettings((s) => s.logoUrl);
 }
 
-// Convenience for non-component code paths (e.g. <head> title)
-export function getPublicSettingsSnapshot() {
-  return {
-    companyName: usePublicSettings.getState().companyName,
-    logoUrl: usePublicSettings.getState().logoUrl,
-  };
-}
-
-// Allow a component to force a refresh after an admin saves new branding.
 export async function refreshPublicSettings() {
   usePublicSettings.setState({ loaded: false });
   await usePublicSettings.getState().load();
 }
-
-// Re-export to keep imports terse.
-export type { PublicSettings };
-export { useState };

@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, User, Paperclip, BedDouble } from "lucide-react";
 import { api } from "@/lib/api";
-import { AttachmentsTab } from "@/app/(app)/properties/[id]/page";
+import { AttachmentsTab } from "@/components/attachments-tab";
 
 type Employee = {
   id: number;

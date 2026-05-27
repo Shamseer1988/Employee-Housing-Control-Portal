@@ -6,6 +6,7 @@ import {
   Building2, BedDouble, Users, AlertTriangle, CheckCircle2,
   Wrench, Plane, Clock, FileText, ArrowRightLeft, FileX, RefreshCcw,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/states";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, Legend,
@@ -87,7 +88,27 @@ export default function DashboardPage() {
   }, []);
 
   if (loading || !summary) {
-    return <div className="text-sm text-muted-foreground animate-pulse">Loading dashboard…</div>;
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-48" />
+          <Skeleton className="h-3 w-72" />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="glass rounded-xl p-4 space-y-2">
+              <Skeleton className="h-3 w-1/2" />
+              <Skeleton className="h-7 w-1/3" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="glass rounded-xl p-4 lg:col-span-2 h-72"><Skeleton className="h-full w-full" /></div>
+          <div className="glass rounded-xl p-4 h-72"><Skeleton className="h-full w-full" /></div>
+        </div>
+      </div>
+    );
   }
 
   const expiryTotal = Object.entries(summary.agreements.expiry_buckets)

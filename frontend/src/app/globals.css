@@ -63,4 +63,59 @@
   .glass-strong {
     @apply bg-card/80 backdrop-blur-2xl border border-white/10 shadow-xl;
   }
+
+  /* Disable glassmorphism: solid card, no blur, neutral border. */
+  html[data-glass="off"] .glass,
+  html[data-glass="off"] .glass-strong {
+    background-color: hsl(var(--card));
+    backdrop-filter: none;
+    border-color: hsl(var(--border));
+  }
+
+  /* Compact mode tightens vertical rhythm and main padding. */
+  html[data-compact="on"] main {
+    padding: 0.75rem !important;
+  }
+  html[data-compact="on"] .glass,
+  html[data-compact="on"] .glass-strong {
+    padding: 0.75rem;
+  }
+  html[data-compact="on"] table th,
+  html[data-compact="on"] table td {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+
+  /* Table density: row vertical padding. */
+  html[data-density="compact"] table th,
+  html[data-density="compact"] table td {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+  html[data-density="spacious"] table th,
+  html[data-density="spacious"] table td {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  /* Skeletons */
+  .skeleton {
+    @apply animate-pulse bg-muted rounded;
+  }
+
+  /* Accessibility: keep focus rings visible everywhere. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+@media print {
+  html[data-glass] .glass,
+  html[data-glass] .glass-strong {
+    background: white !important;
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
+  }
 }

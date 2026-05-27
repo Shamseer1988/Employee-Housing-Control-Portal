@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 
 export function Modal({
@@ -15,22 +17,46 @@ export function Modal({
   children: React.ReactNode;
   size?: "sm" | "md" | "lg";
 }) {
-  if (!open) return null;
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   const sizes = { sm: "max-w-md", md: "max-w-lg", lg: "max-w-2xl" };
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 animate-fade-in">
-      <div className={`glass-strong w-full ${sizes[size]} rounded-2xl p-6 relative`}>
-        <button
-          aria-label="Close"
-          onClick={onClose}
-          className="absolute top-3 right-3 h-8 w-8 rounded-md hover:bg-accent grid place-items-center"
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          role="dialog" aria-modal="true" aria-label={title}
         >
-          <X className="h-4 w-4" />
-        </button>
-        <h2 className="text-lg font-semibold mb-4 pr-8">{title}</h2>
-        {children}
-      </div>
-    </div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 8 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className={`glass-strong w-full ${sizes[size]} rounded-2xl p-6 relative max-h-[90vh] overflow-y-auto`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              aria-label="Close dialog"
+              onClick={onClose}
+              className="absolute top-3 right-3 h-8 w-8 rounded-md hover:bg-accent grid place-items-center"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <h2 className="text-lg font-semibold mb-4 pr-8">{title}</h2>
+            {children}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 

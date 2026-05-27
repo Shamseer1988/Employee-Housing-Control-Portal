@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { selectClass } from "@/components/ui/dialog";
 
-type Record = {
+type MaintenanceRow = {
   id: number;
   transaction_number: string;
   entity_type: string;
@@ -29,7 +29,7 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 export default function MaintenanceListPage() {
-  const [rows, setRows] = useState<Record[]>([]);
+  const [rows, setRows] = useState<MaintenanceRow[]>([]);
   const [entityType, setEntityType] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
@@ -47,7 +47,7 @@ export default function MaintenanceListPage() {
 
   useEffect(() => { load(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const complete = async (rec: Record) => {
+  const complete = async (rec: MaintenanceRow) => {
     if (!confirm(`Complete maintenance ${rec.transaction_number}?`)) return;
     try {
       await api.post(`/maintenance/${rec.id}/complete`, { actual_end_date: new Date().toISOString().slice(0, 10) });
@@ -57,7 +57,7 @@ export default function MaintenanceListPage() {
     }
   };
 
-  const cancel = async (rec: Record) => {
+  const cancel = async (rec: MaintenanceRow) => {
     if (!confirm(`Cancel maintenance ${rec.transaction_number}? The entity status will NOT be restored — only use this for mistaken records.`)) return;
     try {
       await api.post(`/maintenance/${rec.id}/cancel`, {});
