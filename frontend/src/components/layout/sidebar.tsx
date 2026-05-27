@@ -13,24 +13,32 @@ import {
   Shield,
   Bell,
   Briefcase,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth-store";
 
-const nav = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/properties", label: "Properties", icon: Building2 },
-  { href: "/rooms", label: "Rooms & Beds", icon: BedDouble },
-  { href: "/employees", label: "Employees", icon: Users },
-  { href: "/divisions", label: "Divisions", icon: Briefcase },
-  { href: "/transactions", label: "Transactions", icon: ArrowRightLeft },
-  { href: "/reports", label: "Reports", icon: FileSpreadsheet },
+type NavItem = { href: string; label: string; icon: typeof LayoutDashboard; perm?: string };
+
+const nav: NavItem[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard.view" },
+  { href: "/properties", label: "Properties", icon: Building2, perm: "property.view" },
+  { href: "/rooms", label: "Rooms & Beds", icon: BedDouble, perm: "room.view" },
+  { href: "/employees", label: "Employees", icon: Users, perm: "employee.view" },
+  { href: "/divisions", label: "Divisions", icon: Briefcase, perm: "division.view" },
+  { href: "/transactions", label: "Transactions", icon: ArrowRightLeft, perm: "assignment.view" },
+  { href: "/reports", label: "Reports", icon: FileSpreadsheet, perm: "report.view" },
   { href: "/alerts", label: "Alerts", icon: Bell },
-  { href: "/users", label: "Users & Roles", icon: Shield },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/users", label: "Users & Roles", icon: Shield, perm: "user.view" },
+  { href: "/audit", label: "Audit Log", icon: ClipboardList, perm: "audit.view" },
+  { href: "/settings", label: "Settings", icon: Settings, perm: "settings.view" },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const has = useAuth((s) => s.has);
+
+  const items = nav.filter((n) => !n.perm || has(n.perm));
 
   return (
     <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-card/40 backdrop-blur-xl">
@@ -44,7 +52,7 @@ export function Sidebar() {
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-        {nav.map((item) => {
+        {items.map((item) => {
           const Icon = item.icon;
           const active = pathname?.startsWith(item.href);
           return (
@@ -65,7 +73,7 @@ export function Sidebar() {
         })}
       </nav>
       <div className="p-3 text-xs text-muted-foreground border-t border-border">
-        v0.1.0 · Phase 1
+        v0.2.0 · Phase 2
       </div>
     </aside>
   );

@@ -1,9 +1,46 @@
 "use client";
 
-import Link from "next/link";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Building2 } from "lucide-react";
+import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-store";
 
-export default function LoginPage() {
+function LoginForm() {
+  const router = useRouter();
+  const search = useSearchParams();
+  const { setSession, accessToken, hydrated } = useAuth();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const next = search.get("next") || "/dashboard";
+
+  useEffect(() => {
+    if (hydrated && accessToken) {
+      router.replace(next);
+    }
+  }, [hydrated, accessToken, router, next]);
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const resp = await api.post("/auth/login", { username, password });
+      setSession(resp.data.data);
+      router.replace(next);
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Sign in failed";
+      setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen grid place-items-center p-4">
       <div className="glass-strong w-full max-w-md rounded-2xl p-8 animate-fade-in">
@@ -17,23 +54,20 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <form
-          className="space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            window.location.href = "/dashboard";
-          }}
-        >
+        <form className="space-y-4" onSubmit={onSubmit}>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium" htmlFor="email">
-              Email
+            <label className="text-sm font-medium" htmlFor="username">
+              Username or email
             </label>
             <input
-              id="email"
-              type="email"
+              id="username"
+              type="text"
+              autoComplete="username"
               required
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="w-full h-10 rounded-md border border-input bg-card/60 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="you@pugroup.com"
+              placeholder="admin"
             />
           </div>
           <div className="space-y-1.5">
@@ -43,26 +77,40 @@ export default function LoginPage() {
             <input
               id="password"
               type="password"
+              autoComplete="current-password"
               required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               className="w-full h-10 rounded-md border border-input bg-card/60 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="••••••••"
             />
           </div>
+          {error && (
+            <div className="text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-md px-3 py-2">
+              {error}
+            </div>
+          )}
           <button
             type="submit"
-            className="w-full h-10 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+            disabled={busy}
+            className="w-full h-10 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
           >
-            Sign in
+            {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
 
         <p className="mt-6 text-xs text-center text-muted-foreground">
-          Authentication wiring lands in Phase 2 ·{" "}
-          <Link href="/dashboard" className="underline">
-            Skip to dashboard
-          </Link>
+          Default super user: <code className="font-mono">admin</code> / set via <code>SUPERUSER_PASSWORD</code>
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

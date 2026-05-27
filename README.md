@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 1 — Project Foundation complete.**
+> **Current status: Phase 2 — Auth, Users, Roles, Permissions & Audit Log complete.**
 
 ---
 
@@ -81,8 +81,11 @@ createdb pug_accommodation
 
 # One-time: initialize migration repository
 flask --app wsgi db init
-flask --app wsgi db migrate -m "init"
+flask --app wsgi db migrate -m "phase 2 - users roles permissions audit"
 flask --app wsgi db upgrade
+
+# Seed default permissions, roles, and the Super User
+flask --app wsgi seed
 
 # Run the dev server
 flask --app wsgi run --debug --port 5000
@@ -121,7 +124,7 @@ pytest -q
 | Phase | Scope | Status |
 |------:|-------|--------|
 |  1 | Project foundation (Flask app factory, Next.js shell, theme, health checks) | ✅ Complete |
-|  2 | Authentication, users, roles, permissions, audit log base | ⏳ Next |
+|  2 | Authentication, users, roles, permissions, audit log base | ✅ Complete |
 |  3 | Division, landlord, property master + agreement | ⏳ |
 |  4 | Floor, room, bed setup + occupancy summary | ⏳ |
 |  5 | Employee master + Excel import | ⏳ |
@@ -162,24 +165,47 @@ Frontend
 
 ---
 
-## Next phase plan
-
-**Phase 2 — Authentication, Users, Roles, Permissions**
+## What Phase 2 added
 
 Backend
-- `users`, `roles`, `permissions`, `role_permissions`, `user_roles` models + migrations
-- bcrypt password hashing, JWT login/refresh/logout endpoints under `/api/v1/auth`
-- `@require_permission("…")` decorator wrapping route blueprints
-- `audit_logs` model + middleware capturing all critical actions
-- Seed script for default Super User and starter roles (Admin, HR Executive, Accommodation Manager, Branch Manager, Division Manager, Supervisor, Viewer, Auditor)
+- `users`, `roles`, `permissions`, `role_permissions`, `user_roles`, `audit_logs` models
+- bcrypt password hashing; JWT access + refresh tokens (Flask-JWT-Extended)
+- `/api/v1/auth/{login,refresh,logout,me,change-password}`
+- `/api/v1/users` and `/api/v1/roles` CRUD with `@require_permission(...)` decorator
+- `/api/v1/roles/permissions/catalog` returning permissions grouped by module
+- `/api/v1/audit` list endpoint with module/action/user filters
+- `flask --app wsgi seed` CLI: seeds the 36-permission catalog, 9 system roles
+  (Super User, Admin, HR Executive, Accommodation Manager, Branch Manager,
+  Division Manager, Supervisor, Viewer, Auditor) and the default admin user
+- Audit log automatically records login / logout / user & role create / update / deactivate
 
 Frontend
-- `/login` wired to backend; persists access/refresh tokens in `localStorage` via the `axios` interceptor in `src/lib/api.ts`
-- Auth context + Zustand store for the current user and permission set
-- Protected `(app)` layout that redirects to `/login` when unauthenticated
-- Permission-aware sidebar (hide items the user can't access) and action buttons
-- User management screen (`/users`): list, create, edit, deactivate, assign roles
-- Role management screen with the full permission matrix
+- `useAuth` Zustand store (persisted) holding the access/refresh tokens and current user
+- axios client with bearer-token injection + 401 → refresh → retry interceptor
+- `/login` wired to `/api/v1/auth/login`; redirects to `?next=` after sign-in
+- `AuthGuard` wraps the `(app)` layout — unauthenticated users are bounced to `/login`
+- Sidebar items filter themselves based on the current user's permission codes
+- `<Can perm="…">` component for permission-gated UI controls
+- Topbar user menu with sign-out (calls `/auth/logout`, clears tokens)
+- `/users` — list, search, create, edit (incl. password reset), deactivate, assign roles
+- `/users/roles` — role browser with a full permission matrix (per-module, per-permission, per-module-all)
+- `/audit` — paginated audit log with module/action filters
+
+## Next phase plan
+
+**Phase 3 — Division, Landlord, Property Master + Agreement**
+
+Backend
+- `divisions`, `landlords`, `properties`, `property_agreements` models + migration
+- Generic `attachments` table (`entity_type` + `entity_id`) and upload endpoint
+- Property agreement expiry reminder scaffolding (used by Phase 9 dashboard)
+- Property occupancy summary endpoint placeholder for Phase 4 wiring
+
+Frontend
+- `/divisions` master CRUD with company/branch fields
+- `/properties` master list + detail page with tabs (Overview · Agreement · Floors · Rooms · Attachments)
+- Landlord master and agreement management with file upload + version archive
+- Permission-gated action buttons throughout
 
 ---
 
