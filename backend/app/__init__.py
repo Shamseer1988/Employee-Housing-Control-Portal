@@ -26,12 +26,20 @@ def create_app(config_name: str | None = None) -> Flask:
     from .routes.users import users_bp
     from .routes.roles import roles_bp
     from .routes.audit import audit_bp
+    from .routes.divisions import divisions_bp
+    from .routes.landlords import landlords_bp
+    from .routes.properties import properties_bp
+    from .routes.attachments import attachments_bp
 
     app.register_blueprint(health_bp, url_prefix="/api/v1")
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(users_bp, url_prefix="/api/v1/users")
     app.register_blueprint(roles_bp, url_prefix="/api/v1/roles")
     app.register_blueprint(audit_bp, url_prefix="/api/v1/audit")
+    app.register_blueprint(divisions_bp, url_prefix="/api/v1/divisions")
+    app.register_blueprint(landlords_bp, url_prefix="/api/v1/landlords")
+    app.register_blueprint(properties_bp, url_prefix="/api/v1/properties")
+    app.register_blueprint(attachments_bp, url_prefix="/api/v1/attachments")
 
     register_error_handlers(app)
     register_cli(app)

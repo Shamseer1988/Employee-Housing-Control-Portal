@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 2 — Auth, Users, Roles, Permissions & Audit Log complete.**
+> **Current status: Phase 3 — Division, Landlord, Property masters + Agreement & Attachments complete.**
 
 ---
 
@@ -125,7 +125,7 @@ pytest -q
 |------:|-------|--------|
 |  1 | Project foundation (Flask app factory, Next.js shell, theme, health checks) | ✅ Complete |
 |  2 | Authentication, users, roles, permissions, audit log base | ✅ Complete |
-|  3 | Division, landlord, property master + agreement | ⏳ |
+|  3 | Division, landlord, property master + agreement | ✅ Complete |
 |  4 | Floor, room, bed setup + occupancy summary | ⏳ |
 |  5 | Employee master + Excel import | ⏳ |
 |  6 | Employee room/bed assignment | ⏳ |
@@ -191,21 +191,63 @@ Frontend
 - `/users/roles` — role browser with a full permission matrix (per-module, per-permission, per-module-all)
 - `/audit` — paginated audit log with module/action filters
 
-## Next phase plan
-
-**Phase 3 — Division, Landlord, Property Master + Agreement**
+## What Phase 3 added
 
 Backend
-- `divisions`, `landlords`, `properties`, `property_agreements` models + migration
-- Generic `attachments` table (`entity_type` + `entity_id`) and upload endpoint
-- Property agreement expiry reminder scaffolding (used by Phase 9 dashboard)
-- Property occupancy summary endpoint placeholder for Phase 4 wiring
+- Models: `Division`, `Landlord`, `Property`, `PropertyAgreement`, generic `Attachment`
+  (`entity_type` + `entity_id`).
+- Endpoints under `/api/v1`:
+  * `divisions` — CRUD with status filter & search
+  * `landlords` — CRUD with QID/CR/mobile search
+  * `properties` — CRUD with type/status/city/text filters; auto-generated
+    `PROP-NNNN` codes (likewise `DIV-NNNN` / `LL-NNNN` for divisions and
+    landlords) via `services.codes.next_code`.
+  * `properties/<id>/agreements` (list / post / put). Posting a new active
+    agreement automatically archives the previous one (`renewal_status="renewed"`,
+    `is_active=false`) so renewal history is preserved.
+  * `properties/agreements/expiring?days=90` — returns expiring agreements with
+    per-row bucket (`7`/`15`/`30`/`60`/`90`/`expired`) and a global summary
+    suitable for the Phase 9 dashboard.
+  * `attachments` — upload (`multipart/form-data`), list (`entity_type` +
+    `entity_id`), download, delete. Files land in `uploads/<entity>/<id>/<yyyymm>/`
+    with a random-hex stored name and MIME/size captured.
+- Validates property type, ownership type, status, and division foreign keys.
+- All create/update/deactivate/upload actions are audit-logged with old & new
+  snapshots.
 
 Frontend
-- `/divisions` master CRUD with company/branch fields
-- `/properties` master list + detail page with tabs (Overview · Agreement · Floors · Rooms · Attachments)
-- Landlord master and agreement management with file upload + version archive
-- Permission-gated action buttons throughout
+- `/divisions` — list, search, create / edit dialog with all blueprint fields.
+- `/landlords` — list, search, create / edit dialog (incl. IBAN, contact person).
+- `/properties` — responsive card grid with type & status filters and live
+  agreement-expiry tagging on each card.
+- `/properties/[id]` — detail page with tabbed UI:
+  * Overview (full property facts + active-agreement side card with days-left tone)
+  * Agreement (renewal-aware history table + post-new dialog)
+  * Floors / Rooms (placeholder noting Phase 4)
+  * Attachments (drag-and-drop upload, list, download, delete) — reusable for
+    every entity that gains attachments later.
+- Sidebar gains a "Landlords" entry, all items remain permission-gated.
+
+Tests
+- `pytest -q` → **17 passed** (Phase 1 health, Phase 2 auth, Phase 3 masters/
+  agreements/expiring buckets/attachment upload+download).
+
+## Next phase plan
+
+**Phase 4 — Floor, Room & Bed setup**
+
+Backend
+- `floors`, `rooms`, `beds` models with cascade rules and indexes
+- Auto bed-code generator (`<property>-F<floor>-R<room>-B<bed>`)
+- Room capacity guard, bed-status state machine
+  (`empty` / `occupied` / `reserved` / `maintenance` / `blocked`)
+- Property occupancy summary (occupied, empty, reserved, maintenance, %)
+
+Frontend
+- Property detail "Floors" tab — add/edit floors
+- Property detail "Rooms" tab — rooms grouped by floor, capacity & status badges
+- Bed grid view inside each room with one-click status changes
+- Occupancy progress bars on the property cards / dashboard
 
 ---
 

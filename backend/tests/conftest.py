@@ -1,3 +1,5 @@
+import os
+import tempfile
 import pytest
 
 from app import create_app
@@ -6,8 +8,12 @@ from app.cli import _seed_permissions, _seed_roles, _seed_super_user
 
 
 @pytest.fixture()
-def app():
+def app(tmp_path):
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+    os.environ["UPLOAD_FOLDER"] = str(upload_dir)
     app = create_app("testing")
+    app.config["UPLOAD_FOLDER"] = str(upload_dir)
     with app.app_context():
         db.create_all()
         perm_index = _seed_permissions()

@@ -14,6 +14,7 @@ import {
   Bell,
   Briefcase,
   ClipboardList,
+  Key,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
@@ -23,6 +24,7 @@ type NavItem = { href: string; label: string; icon: typeof LayoutDashboard; perm
 const nav: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard.view" },
   { href: "/properties", label: "Properties", icon: Building2, perm: "property.view" },
+  { href: "/landlords", label: "Landlords", icon: Key, perm: "landlord.view" },
   { href: "/rooms", label: "Rooms & Beds", icon: BedDouble, perm: "room.view" },
   { href: "/employees", label: "Employees", icon: Users, perm: "employee.view" },
   { href: "/divisions", label: "Divisions", icon: Briefcase, perm: "division.view" },
@@ -73,7 +75,7 @@ export function Sidebar() {
         })}
       </nav>
       <div className="p-3 text-xs text-muted-foreground border-t border-border">
-        v0.2.0 · Phase 2
+        v0.3.0 · Phase 3
       </div>
     </aside>
   );

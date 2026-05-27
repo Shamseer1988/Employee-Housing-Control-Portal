@@ -1,4 +1,3 @@
-from . import audit  # re-export for `from app.services import audit`
-from . import permissions
+from . import audit, permissions, codes, attachments, reminders
 
-__all__ = ["audit", "permissions"]
+__all__ = ["audit", "permissions", "codes", "attachments", "reminders"]
