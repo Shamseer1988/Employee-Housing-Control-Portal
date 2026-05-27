@@ -8,6 +8,7 @@ from .attachment import Attachment
 from .floor import Floor
 from .room import Room
 from .bed import Bed
+from .employee import Employee, ImportBatch, ImportError
 
 __all__ = [
     "BaseModel",
@@ -26,4 +27,7 @@ __all__ = [
     "Floor",
     "Room",
     "Bed",
+    "Employee",
+    "ImportBatch",
+    "ImportError",
 ]

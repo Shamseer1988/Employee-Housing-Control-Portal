@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 4 — Floor, Room & Bed setup with occupancy summary complete.**
+> **Current status: Phase 5 — Employee master + Excel import complete.**
 
 ---
 
@@ -127,7 +127,7 @@ pytest -q
 |  2 | Authentication, users, roles, permissions, audit log base | ✅ Complete |
 |  3 | Division, landlord, property master + agreement | ✅ Complete |
 |  4 | Floor, room, bed setup + occupancy summary | ✅ Complete |
-|  5 | Employee master + Excel import | ⏳ |
+|  5 | Employee master + Excel import | ✅ Complete |
 |  6 | Employee room/bed assignment | ⏳ |
 |  7 | Transfer, bed change, cancellation, vacation, visa cancellation | ⏳ |
 |  8 | Landlord renewal + maintenance | ⏳ |
@@ -277,24 +277,66 @@ Tests
   capacity guard, bed state machine, room status auto-recompute, structure
   & occupancy endpoints, delete guards).
 
-## Next phase plan
-
-**Phase 5 — Employee master + Excel import**
+## What Phase 5 added
 
 Backend
-- `employees` model with QID/passport uniqueness, accommodation status fields
-  and FKs into the bed currently held.
-- `attachments` already supports `entity_type="employee"` for QID, passport,
-  visa, contract.
-- Excel template download and Excel import endpoint with row-by-row
-  validation, `import_batches` + `import_errors` tracking, idempotent retry.
+- Models: `Employee` (auto `EMP-NNNNN` code, unique QID & passport,
+  accommodation status + current property/floor/room/bed FKs, status enum),
+  `ImportBatch` and `ImportError` for traceable Excel imports.
+- Endpoints under `/api/v1/employees`:
+  - `GET /` — search by code/name/QID/passport/mobile; filter by division,
+    status, accommodation-required.
+  - `GET/POST/PUT/DELETE /<id>` — full CRUD (DELETE soft-terminates).
+  - `GET /template` — downloads a styled `.xlsx` template with column hints
+    and a sample row.
+  - `POST /import` — multipart upload that validates the entire file first
+    (required fields, gender/status/accommodation_type enums, division code
+    lookup, duplicate QID / passport / employee_code against the DB *and*
+    within the file). If any row fails, nothing is committed and every error
+    row is returned with its line number.
+  - `GET /import-batches` and `/import-batches/<id>` — batch history with
+    captured error rows for audit / retry.
+- Validation rules:
+  - `full_name` required; `qid_number` & `passport_number` globally unique;
+    `division_code` must resolve to a real Division.
+  - Gender / accommodation_type / status restricted to canonical sets.
+  - All-or-nothing import keeps the database consistent on every retry.
+- Audit log captures create / update / deactivate / import (with totals).
 
 Frontend
-- `/employees` master list with search, division filter, status badges and a
-  full CRUD dialog.
-- Document upload tab on each employee.
-- Excel import drawer: template download, file upload, preview, row error
-  table, post-on-confirm.
+- `/employees` — list with search, division/status/accommodation filters,
+  status tones, current-bed display, full create/edit dialog covering every
+  blueprint field, and "Import" action.
+- `/employees/[id]` — tabbed detail (Profile · Accommodation · Documents).
+  Accommodation tab links into the assigned property and displays the bed
+  code; Documents tab reuses the Phase 3 `AttachmentsTab` against
+  `entity_type="employee"` for QID/passport/visa/contract files.
+- Import dialog: template download, drag-to-pick file, single-shot import
+  call, success summary (e.g. *"Imported 4 of 4 rows"*) or a scrollable
+  error table keyed by row number for quick spreadsheet fixes.
+
+Tests
+- `pytest -q` → **31 passed** (Phases 1–4 plus 7 new for employee CRUD,
+  validation, filters, template download, Excel happy-path,
+  validation-blocks-commit, and in-file-duplicate detection).
+
+## Next phase plan
+
+**Phase 6 — Employee accommodation assignment transaction**
+
+Backend
+- `accommodation_assignments` model with transaction number, employee,
+  property/floor/room/bed, dates, reason, status (`active`/`cancelled`),
+  approval scaffolding for Phase 11.
+- Assignment posting logic: empty-bed-only, employee cannot hold two active
+  beds, updates `employee.current_*` and flips `bed.status` to `occupied`.
+- Available-bed query (filterable by property, gender, accommodation type).
+
+Frontend
+- `/transactions/assignment` — wizard: pick employee → pick property → pick
+  available bed → review → post.
+- Employee accommodation tab gains the current assignment card with a
+  cancel/transfer action stub for Phase 7.
 
 ---
 
