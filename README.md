@@ -3,7 +3,7 @@
 Centralized, multi-company, multi-branch Employee Accommodation Management web application for **Paris United Group (PUG)** and its group companies. Head Office manages properties, rooms, beds, landlord agreements, and employee allocations from a single dashboard.
 
 > Built phase-by-phase against the blueprint in `docs/BLUEPRINT.txt` and `docs/DEVELOPMENT_PROMPT.txt`.
-> **Current status: Phase 9 — Dashboard cards, charts & alert center complete.**
+> **Current status: Phase 10 — Reports & Excel export complete.**
 
 ---
 
@@ -132,7 +132,7 @@ pytest -q
 |  7 | Transfer, bed change, cancellation, vacation, visa cancellation | ✅ Complete |
 |  8 | Landlord renewal & maintenance | ✅ Complete |
 |  9 | Dashboard cards, charts, alerts | ✅ Complete |
-| 10 | Reports + Excel/PDF export | ⏳ |
+| 10 | Reports + Excel/PDF export | ✅ Complete |
 | 11 | Approval workflow | ⏳ |
 | 12 | System settings | ⏳ |
 | 13 | UI polish + responsive optimization | ⏳ |
@@ -538,23 +538,70 @@ Tests
   digest, activity feed, occupancy-by-property chart, monthly movement
   chart, and the permission gate).
 
-## Next phase plan
-
-**Phase 10 — Reports & export**
+## What Phase 10 added
 
 Backend
-- Report endpoints with shared filter parameters (property / division /
-  date range / status) — property occupancy, room-wise allocation,
-  empty/full rooms, employee accommodation history, agreement expiry,
-  vacation, visa-cancelled, maintenance, mixed-division, monthly
-  movement, audit trail.
-- Excel export (openpyxl) and a PDF/print-friendly HTML view.
+- `services/reports.py` — a small registry where each report is a function
+  returning `{columns, rows, meta}`. New reports are added with a single
+  `@report(slug, title, category)` decorator. Shipped reports:
+  1. Property Occupancy (per-property bed totals + breakdown + %).
+  2. Room-wise Bed Allocation (every bed with its current employee).
+  3. Empty Beds (subset of #2 with the assignment columns hidden).
+  4. Property-wise Employee List.
+  5. Division-wise Accommodation (assigned / pending / on vacation).
+  6. Employee Accommodation History (reuses the Phase 7 timeline).
+  7. Landlord Agreement Expiry (active agreements + bucket + days-left).
+  8. Employees on Vacation.
+  9. Maintenance Room/Bed (defaults to in-progress).
+  10. Monthly Accommodation Movement.
+  11. Audit Trail.
+- `to_workbook(title, columns, rows)` writes a styled `.xlsx` (header
+  fill, frozen panes, auto column widths) via openpyxl.
+- Endpoints under `/api/v1/reports`:
+  - `GET /` — catalog (slug / title / category / description).
+  - `GET /<slug>?…filters…` — returns the report payload as JSON.
+  - `GET /<slug>/export?…filters…` — downloads the report as Excel.
+- All filters arrive as query-string params; each report decides which
+  ones it honours. JSON view is gated by `report.view`; export by
+  `report.export`.
 
 Frontend
-- `/reports` index with category cards (Occupancy · Employees · Property
-  · Operations · Audit).
-- Per-report page with TanStack Table, sticky header, column visibility,
-  saved filters in localStorage, Excel download button, print stylesheet.
+- `/reports` — category cards (Occupancy / Employees / Property /
+  Operations / Audit) loaded from the catalog endpoint.
+- `/reports/[slug]` — generic viewer that renders any report:
+  - Per-slug filter form (text / number / date / select / property
+    picker / division picker / employee picker), persisted to
+    localStorage so refresh keeps your filters.
+  - TanStack Table with click-to-sort headers and a "Columns"
+    toggle panel for column visibility.
+  - Excel download (permission-gated by `report.export`) and a Print
+    button with a global print stylesheet that drops sidebar/topbar
+    and removes glassmorphism for clean output.
+- Sidebar phase tag bumped to v0.10.0.
+
+Tests
+- `pytest -q` → **79 passed** (12 new for the report catalog, every
+  shipped report's filtering, the openpyxl export, missing-required-
+  filter handling, 404 for unknown slugs, and the permission gate).
+
+## Next phase plan
+
+**Phase 11 — Approval workflow**
+
+Backend
+- `approval_requests` table tied to the operational transactions
+  (assignment / transfer / cancellation / renewal). Capture the actor,
+  required role, status (pending / approved / rejected), decided_by,
+  decision_remarks, decided_at.
+- Toggle per-transaction-type approval requirement via system settings
+  (Phase 12 will surface the UI).
+- New "pending approval" status on the affected transactions and
+  the assignment service guards so that side effects only run after
+  approval.
+
+Frontend
+- `/approvals` queue with action / details / approve / reject buttons.
+- Pending badge on each transaction list and in the alert center.
 
 ---
 
