@@ -1,0 +1,6 @@
+cd "D:\PUGAppsProject\Employee Housing Control Portal"
+git pull
+docker compose down
+docker compose build --no-cache frontend backend
+docker compose up -d
+docker compose logs -f backend
