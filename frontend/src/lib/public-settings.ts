@@ -18,7 +18,7 @@ type PublicSettings = {
   load: () => Promise<void>;
 };
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 const DEFAULT_NAME = process.env.NEXT_PUBLIC_APP_NAME || "PUG Accommodation Portal";
 

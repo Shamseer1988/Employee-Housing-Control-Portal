@@ -1,7 +1,17 @@
 import axios, { AxiosError, AxiosRequestConfig } from "axios";
 import { useAuth } from "./auth-store";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+/**
+ * Base URL strategy:
+ *  - If `NEXT_PUBLIC_API_URL` is set at build time (typically only in
+ *    native dev where the API runs on a different port), use it.
+ *  - Otherwise use a relative URL so the browser sends API requests to
+ *    whatever host served the page. nginx in front of the stack proxies
+ *    `/api/*` to the backend, so the app works regardless of whether
+ *    the user typed `localhost`, the LAN IP, a Tailscale name, or a
+ *    public hostname.
+ */
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 export const api = axios.create({
   baseURL: `${BASE_URL}/api/v1`,

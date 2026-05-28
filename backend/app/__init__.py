@@ -19,7 +19,14 @@ def create_app(config_name: str | None = None) -> Flask:
     from . import models  # noqa: F401
     migrate.init_app(app, db)
     jwt.init_app(app)
-    CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, supports_credentials=True)
+    # CORS: if any allowed origin is "*", broadcast that to flask-cors as a
+    # single wildcard (the list form would attempt strict matching against
+    # the literal string "*"). Same-origin requests through nginx don't
+    # trigger CORS at all; this only matters for cross-origin dev setups.
+    _cors_origins = app.config["CORS_ORIGINS"]
+    if "*" in _cors_origins:
+        _cors_origins = "*"
+    CORS(app, resources={r"/api/*": {"origins": _cors_origins}}, supports_credentials=("*" not in _cors_origins))
 
     from .routes.health import health_bp
     from .routes.auth import auth_bp

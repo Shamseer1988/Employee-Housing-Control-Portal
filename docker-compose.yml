@@ -29,7 +29,9 @@ services:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      # "*" by default because same-origin via nginx doesn't trigger CORS
+      # anyway. Tighten for production (e.g. https://accommodation.pug.com).
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
       UPLOAD_FOLDER: /data/uploads
       SUPERUSER_USERNAME: ${SUPERUSER_USERNAME:-admin}
       SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-admin@pugroup.local}
@@ -52,13 +54,17 @@ services:
   frontend:
     build:
       context: ./frontend
+      # No NEXT_PUBLIC_API_URL build arg: the bundle uses RELATIVE URLs
+      # so the app works on whatever host nginx is reached at — localhost,
+      # LAN IP, Tailscale name, public domain — without rebuilding.
+      # Override only if the frontend is served from a different origin
+      # than the API (rare).
       args:
-        NEXT_PUBLIC_API_URL: ${PUBLIC_BASE_URL:-http://localhost}
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-}
     restart: unless-stopped
     depends_on:
       - backend
     environment:
-      NEXT_PUBLIC_API_URL: ${PUBLIC_BASE_URL:-http://localhost}
       NODE_ENV: production
 
   nginx:
