@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, Search, UserCircle2 } from "lucide-react";
+import { LogOut, UserCircle2 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NotificationBell } from "@/components/notification-bell";
 import { MobileNav } from "@/components/layout/mobile-nav";
+import { GlobalSearch } from "@/components/global-search";
 import { useAuth } from "@/lib/auth-store";
 import { api } from "@/lib/api";
 
@@ -28,15 +29,7 @@ export function Topbar() {
     <header className="h-16 sticky top-0 z-30 border-b border-border bg-background/70 backdrop-blur-xl">
       <div className="flex h-full items-center gap-3 px-3 lg:px-6">
         <MobileNav />
-        <div className="relative flex-1 max-w-md hidden sm:block">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            type="search"
-            placeholder="Search properties, rooms, employees…"
-            aria-label="Search"
-            className="w-full h-9 rounded-md border border-input bg-card/60 pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-        </div>
+        <GlobalSearch />
         <div className="ml-auto flex items-center gap-2">
           <NotificationBell />
           <ThemeToggle />
