@@ -13,7 +13,9 @@ COPY . .
 # Allow build-time API URL injection
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-RUN npm run build
+# Ensure /app/public exists even if the repo has no static assets — the
+# runner stage unconditionally copies it.
+RUN mkdir -p public && npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
