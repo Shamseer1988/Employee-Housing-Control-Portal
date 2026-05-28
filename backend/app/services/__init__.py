@@ -1,12 +1,12 @@
 from . import (
     audit, permissions, codes, attachments, reminders, occupancy,
     employee_import, assignments, movements, renewals, maintenance, dashboard,
-    reports, settings, approvals, demo_data,
+    reports, settings, approvals, demo_data, bulk_movements,
 )
 
 __all__ = [
     "audit", "permissions", "codes", "attachments",
     "reminders", "occupancy", "employee_import",
     "assignments", "movements", "renewals", "maintenance", "dashboard",
-    "reports", "settings", "approvals", "demo_data",
+    "reports", "settings", "approvals", "demo_data", "bulk_movements",
 ]

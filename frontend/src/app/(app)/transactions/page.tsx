@@ -64,7 +64,6 @@ const cards: Card[] = [
     desc: "Upload Excel to allocate or transfer many employees in one batch.",
     icon: FileText,
     perm: "assignment.create",
-    comingSoon: true,
   },
 ];
 
