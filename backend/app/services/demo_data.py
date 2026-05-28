@@ -7,7 +7,7 @@ import click
 
 from ..extensions import db
 from ..models import (
-    Bed, Division, Employee, Floor, Landlord, Property, Room,
+    Bed, Division, Employee, Floor, Landlord, Property, PropertyAgreement, Room,
 )
 from ..models.assignment import generate_transaction_number
 from .codes import next_code, prefix_for
@@ -94,6 +94,26 @@ def _ensure_bed(room: Room, bed_number: str) -> Bed:
     return b
 
 
+def _ensure_agreement(prop: Property, landlord: Landlord, start: date, expiry: date,
+                      monthly_rent: float, actor_id: int) -> PropertyAgreement:
+    existing = (
+        PropertyAgreement.query
+        .filter_by(property_id=prop.id, is_active=True)
+        .first()
+    )
+    if existing:
+        return existing
+    ag = PropertyAgreement(
+        property_id=prop.id, landlord_id=landlord.id,
+        start_date=start, expiry_date=expiry, monthly_rent=monthly_rent,
+        is_active=True, reminder_days_before_expiry=90,
+        created_by=actor_id, updated_by=actor_id,
+    )
+    db.session.add(ag)
+    db.session.flush()
+    return ag
+
+
 def _ensure_employee(full_name: str, **fields) -> Employee:
     existing = Employee.query.filter_by(full_name=full_name).first()
     if existing:
@@ -113,41 +133,29 @@ def seed_all(actor_id: int = 1) -> dict:
     """
     today = _today()
 
-    # ---- Landlords (with mixed expiry buckets) ----
+    # ---- Landlords (master only) ----
     al_mansoor = _ensure_landlord(
         "Al Mansoor Properties",
         qid_cr_number="CR-1001", mobile="+97455551001",
         email="contact@almansoor.qa", contact_person="Ahmed Al Mansoor",
-        agreement_start_date=today - timedelta(days=720),
-        agreement_expiry_date=today + timedelta(days=5),     # critical (7-day bucket)
-        monthly_rent=18000, reminder_days_before_expiry=90,
         created_by=actor_id, updated_by=actor_id,
     )
     al_faris = _ensure_landlord(
         "Al Faris Holdings",
         qid_cr_number="CR-1002", mobile="+97455551002",
         email="leasing@alfaris.qa", contact_person="Salem Al Faris",
-        agreement_start_date=today - timedelta(days=900),
-        agreement_expiry_date=today - timedelta(days=10),    # expired
-        monthly_rent=12500, reminder_days_before_expiry=60,
         created_by=actor_id, updated_by=actor_id,
     )
     doha_properties = _ensure_landlord(
         "Doha Properties LLC",
         qid_cr_number="CR-1003", mobile="+97455551003",
         email="info@dohaproperties.qa", contact_person="Khalid Al Thani",
-        agreement_start_date=today - timedelta(days=200),
-        agreement_expiry_date=today + timedelta(days=500),   # safe
-        monthly_rent=22000, reminder_days_before_expiry=90,
         created_by=actor_id, updated_by=actor_id,
     )
     qatar_estates = _ensure_landlord(
         "Qatar Estates",
         qid_cr_number="CR-1004", mobile="+97455551004",
         email="rentals@qestates.qa", contact_person="Fatima Al Kuwari",
-        agreement_start_date=today - timedelta(days=300),
-        agreement_expiry_date=today + timedelta(days=45),    # 60-day bucket
-        monthly_rent=15500, reminder_days_before_expiry=90,
         created_by=actor_id, updated_by=actor_id,
     )
 
@@ -177,37 +185,51 @@ def seed_all(actor_id: int = 1) -> dict:
                                    manager="Tariq Mahmoud", staff_count=12,
                                    created_by=actor_id, updated_by=actor_id)
 
-    # ---- Properties ----
+    # ---- Properties (master only — counts are computed from structure) ----
     p1 = _ensure_property(
         "Doha Building 12", al_mansoor,
         property_type="full_building", building_number="12",
         zone="27", street="Salwa Road", area="Najma", city="Doha",
-        total_floors=3, total_rooms=12, total_bed_capacity=24,
         managed_by="HR Admin", created_by=actor_id, updated_by=actor_id,
     )
     p2 = _ensure_property(
         "Lusail Villa 7", al_faris,
         property_type="villa", building_number="V7",
         zone="69", street="Marina Boulevard", area="Marina District", city="Lusail",
-        total_floors=2, total_rooms=6, total_bed_capacity=12,
         managed_by="HR Admin", created_by=actor_id, updated_by=actor_id,
     )
     p3 = _ensure_property(
         "Industrial Camp A", doha_properties,
         property_type="labour_camp", building_number="CA",
         zone="57", street="Gate 9", area="Industrial Area", city="Doha",
-        total_floors=2, total_rooms=8, total_bed_capacity=32,
         managed_by="Camp Boss", created_by=actor_id, updated_by=actor_id,
     )
     p4 = _ensure_property(
         "Wakra Staff Flats", qatar_estates,
         property_type="apartment", building_number="WSF-3",
         zone="91", street="Al Wakra Main", area="Old Wakra", city="Al Wakra",
-        total_floors=2, total_rooms=6, total_bed_capacity=12,
         managed_by="HR Admin", created_by=actor_id, updated_by=actor_id,
     )
 
     properties = [p1, p2, p3, p4]
+
+    # ---- Agreements (mixed expiry buckets so the dashboard alerts surface) ----
+    _ensure_agreement(p1, al_mansoor,
+                      start=today - timedelta(days=720),
+                      expiry=today + timedelta(days=5),     # critical (7-day bucket)
+                      monthly_rent=18000, actor_id=actor_id)
+    _ensure_agreement(p2, al_faris,
+                      start=today - timedelta(days=900),
+                      expiry=today - timedelta(days=10),    # expired
+                      monthly_rent=12500, actor_id=actor_id)
+    _ensure_agreement(p3, doha_properties,
+                      start=today - timedelta(days=200),
+                      expiry=today + timedelta(days=500),   # safe
+                      monthly_rent=22000, actor_id=actor_id)
+    _ensure_agreement(p4, qatar_estates,
+                      start=today - timedelta(days=300),
+                      expiry=today + timedelta(days=45),    # 60-day bucket
+                      monthly_rent=15500, actor_id=actor_id)
 
     # ---- Floors / rooms / beds ----
     beds: list[Bed] = []

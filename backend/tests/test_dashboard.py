@@ -43,13 +43,14 @@ def test_alerts_endpoint(client, auth_headers):
     prop, _, _, beds, emp, landlord = _scaffold(client, auth_headers)
     today = date.today()
 
-    # An expiring agreement (5 days) — set on the landlord directly
-    client.put(f"/api/v1/landlords/{landlord['id']}", headers=auth_headers,
-               json={
-                   "agreement_start_date": (today - timedelta(days=200)).isoformat(),
-                   "agreement_expiry_date": (today + timedelta(days=5)).isoformat(),
-                   "monthly_rent": 1000,
-               })
+    # An expiring agreement (5 days) — on the property
+    client.post(f"/api/v1/properties/{prop['id']}/agreements", headers=auth_headers,
+                json={
+                    "landlord_id": landlord["id"],
+                    "start_date": (today - timedelta(days=200)).isoformat(),
+                    "expiry_date": (today + timedelta(days=5)).isoformat(),
+                    "monthly_rent": 1000,
+                })
 
     # Unassigned employee that needs accommodation
     client.post("/api/v1/employees", headers=auth_headers,

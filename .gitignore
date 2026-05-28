@@ -41,3 +41,4 @@ backups/*
 .idea/
 .vscode/
 *.swp
+backend/.venv-test/

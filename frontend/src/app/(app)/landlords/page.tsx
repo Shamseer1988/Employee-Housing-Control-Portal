@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Pencil, AlertTriangle, FileText, Upload, Download, Trash2 } from "lucide-react";
+import { Plus, Pencil } from "lucide-react";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { Modal, Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
@@ -16,35 +16,9 @@ type Landlord = {
   email: string | null;
   contact_person: string | null;
   address: string | null;
-  agreement_start_date: string | null;
-  agreement_expiry_date: string | null;
-  monthly_rent: number | null;
-  reminder_days_before_expiry: number;
   status: string;
   remarks: string | null;
 };
-
-type Attachment = {
-  id: number;
-  category: string | null;
-  original_name: string;
-  size_bytes: number;
-  created_at: string;
-};
-
-function daysUntil(dateStr: string | null): number | null {
-  if (!dateStr) return null;
-  return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
-}
-
-function expiryTone(dateStr: string | null): string {
-  const d = daysUntil(dateStr);
-  if (d === null) return "text-muted-foreground";
-  if (d < 0) return "text-rose-600";
-  if (d <= 30) return "text-amber-600";
-  if (d <= 90) return "text-sky-600";
-  return "text-emerald-600";
-}
 
 export default function LandlordsPage() {
   const [rows, setRows] = useState<Landlord[]>([]);
@@ -102,8 +76,8 @@ export default function LandlordsPage() {
                 <th className="py-2 pr-4">Name</th>
                 <th className="py-2 pr-4">QID/CR</th>
                 <th className="py-2 pr-4">Mobile</th>
-                <th className="py-2 pr-4">Agreement expiry</th>
-                <th className="py-2 pr-4">Monthly rent</th>
+                <th className="py-2 pr-4">Email</th>
+                <th className="py-2 pr-4">Status</th>
                 <th className="py-2 pr-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -111,25 +85,14 @@ export default function LandlordsPage() {
               {loading ? <tr><td colSpan={7} className="py-10 text-center text-muted-foreground">Loading…</td></tr>
               : rows.length === 0 ? <tr><td colSpan={7} className="py-10 text-center text-muted-foreground">No landlords yet</td></tr>
               : rows.map((r) => {
-                  const dleft = daysUntil(r.agreement_expiry_date);
                   return (
                     <tr key={r.id} className="border-b border-border/60 hover:bg-accent/30">
                       <td className="py-2 pr-4 font-mono text-xs">{r.code}</td>
                       <td className="py-2 pr-4 font-medium">{r.name}</td>
                       <td className="py-2 pr-4 font-mono text-xs">{r.qid_cr_number ?? "—"}</td>
                       <td className="py-2 pr-4">{r.mobile ?? "—"}</td>
-                      <td className={"py-2 pr-4 " + expiryTone(r.agreement_expiry_date)}>
-                        {r.agreement_expiry_date ? (
-                          <span className="inline-flex items-center gap-1">
-                            {dleft !== null && dleft <= 30 && <AlertTriangle className="h-3 w-3" />}
-                            <span className="font-mono text-xs">{r.agreement_expiry_date}</span>
-                            {dleft !== null && (
-                              <span className="text-xs">({dleft < 0 ? `expired ${Math.abs(dleft)}d ago` : `in ${dleft}d`})</span>
-                            )}
-                          </span>
-                        ) : "—"}
-                      </td>
-                      <td className="py-2 pr-4">{r.monthly_rent != null ? r.monthly_rent.toLocaleString() : "—"}</td>
+                      <td className="py-2 pr-4">{r.email ?? "—"}</td>
+                      <td className="py-2 pr-4 capitalize">{r.status}</td>
                       <td className="py-2 pr-4 text-right">
                         <Can perm="landlord.edit">
                           <button
@@ -164,10 +127,7 @@ function LandlordDialog({ open, editing, onClose, onSaved }: {
 
   useEffect(() => {
     if (open) {
-      setForm(editing ?? {
-        status: "active",
-        reminder_days_before_expiry: 90,
-      } as Partial<Landlord>);
+      setForm(editing ?? { status: "active" } as Partial<Landlord>);
     }
   }, [editing, open]);
 
@@ -178,19 +138,15 @@ function LandlordDialog({ open, editing, onClose, onSaved }: {
     e.preventDefault();
     setBusy(true);
     try {
-      const payload = { ...form };
-      if (payload.monthly_rent === undefined || payload.monthly_rent === null || (payload.monthly_rent as unknown) === "") {
-        payload.monthly_rent = null;
-      }
       let savedCode: string;
       if (editing) {
-        const resp = await api.put(`/landlords/${editing.id}`, payload);
+        const resp = await api.put(`/landlords/${editing.id}`, form);
         savedCode = resp.data?.data?.code ?? editing.code;
         toast.success(`Landlord ${savedCode} updated`);
       } else {
-        const resp = await api.post("/landlords", payload);
+        const resp = await api.post("/landlords", form);
         savedCode = resp.data?.data?.code ?? "";
-        toast.success(`Landlord ${savedCode} created`, "Open the row to attach the agreement PDF.");
+        toast.success(`Landlord ${savedCode} created`);
       }
       onSaved();
     } catch (err: unknown) {
@@ -228,50 +184,13 @@ function LandlordDialog({ open, editing, onClose, onSaved }: {
           </Field>
         </div>
 
-        <div className="rounded-lg border border-border bg-card/40 p-3 space-y-3">
-          <div className="text-xs uppercase tracking-wide text-muted-foreground inline-flex items-center gap-2">
-            <FileText className="h-3.5 w-3.5" /> Current agreement
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Start date">
-              <input
-                type="date"
-                className={inputClass}
-                value={String(form.agreement_start_date ?? "").slice(0, 10)}
-                onChange={(e) => set("agreement_start_date", e.target.value || null)}
-              />
-            </Field>
-            <Field label="Expiry date">
-              <input
-                type="date"
-                className={inputClass}
-                value={String(form.agreement_expiry_date ?? "").slice(0, 10)}
-                onChange={(e) => set("agreement_expiry_date", e.target.value || null)}
-              />
-            </Field>
-            <Field label="Monthly rent">
-              <input
-                type="number"
-                step="0.01"
-                className={inputClass}
-                value={form.monthly_rent != null ? String(form.monthly_rent) : ""}
-                onChange={(e) => set("monthly_rent", e.target.value === "" ? null : Number(e.target.value))}
-              />
-            </Field>
-            <Field label="Reminder days before expiry">
-              <input
-                type="number"
-                className={inputClass}
-                value={form.reminder_days_before_expiry ?? 90}
-                onChange={(e) => set("reminder_days_before_expiry", Number(e.target.value) as Landlord["reminder_days_before_expiry"])}
-              />
-            </Field>
-          </div>
-        </div>
-
         <Field label="Remarks">
           <textarea className={textareaClass} value={String(form.remarks ?? "")} onChange={(e) => set("remarks", e.target.value)} />
         </Field>
+
+        <div className="text-xs text-muted-foreground">
+          Agreements (start date, expiry, rent, PDF) are managed on each property&apos;s detail page.
+        </div>
 
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
@@ -280,106 +199,7 @@ function LandlordDialog({ open, editing, onClose, onSaved }: {
           </button>
         </div>
       </form>
-
-      {editing && (
-        <div className="mt-4 pt-4 border-t border-border">
-          <LandlordAttachments landlordId={editing.id} />
-        </div>
-      )}
     </Modal>
   );
 }
 
-function LandlordAttachments({ landlordId }: { landlordId: number }) {
-  const [rows, setRows] = useState<Attachment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const resp = await api.get("/attachments", {
-        params: { entity_type: "landlord", entity_id: landlordId },
-      });
-      setRows(resp.data.data);
-    } finally { setLoading(false); }
-  };
-
-  useEffect(() => { load(); }, [landlordId]);  // eslint-disable-line react-hooks/exhaustive-deps
-
-  const upload = async (file: File) => {
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("entity_type", "landlord");
-      fd.append("entity_id", String(landlordId));
-      fd.append("category", "agreement");
-      await api.post("/attachments", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      await load();
-    } finally { setUploading(false); }
-  };
-
-  const download = async (att: Attachment) => {
-    const resp = await api.get(`/attachments/${att.id}/download`, { responseType: "blob" });
-    const url = URL.createObjectURL(resp.data);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = att.original_name;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const remove = async (att: Attachment) => {
-    if (!confirm(`Delete ${att.original_name}?`)) return;
-    await api.delete(`/attachments/${att.id}`);
-    await load();
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground inline-flex items-center gap-2">
-        <FileText className="h-3.5 w-3.5" /> Agreement & related documents
-      </div>
-      <Can perm="attachment.upload">
-        <label className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer">
-          <Upload className="h-4 w-4" /> {uploading ? "Uploading…" : "Upload agreement PDF"}
-          <input
-            type="file"
-            accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) upload(f);
-              e.currentTarget.value = "";
-            }}
-          />
-        </label>
-      </Can>
-
-      {loading ? (
-        <div className="text-sm text-muted-foreground">Loading…</div>
-      ) : rows.length === 0 ? (
-        <div className="text-sm text-muted-foreground">No attachments yet.</div>
-      ) : (
-        <ul className="space-y-1">
-          {rows.map((a) => (
-            <li key={a.id} className="flex items-center gap-2 rounded-md border border-border bg-card/60 px-3 py-1.5">
-              <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="flex-1 truncate text-sm">{a.original_name}</span>
-              <span className="text-xs text-muted-foreground">{(a.size_bytes / 1024).toFixed(1)} KB</span>
-              <button onClick={() => download(a)} aria-label="Download" className="h-7 w-7 grid place-items-center rounded-md hover:bg-accent">
-                <Download className="h-3.5 w-3.5" />
-              </button>
-              <Can perm="attachment.upload">
-                <button onClick={() => remove(a)} aria-label="Delete" className="h-7 w-7 grid place-items-center rounded-md hover:bg-destructive/10 text-destructive">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </Can>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}

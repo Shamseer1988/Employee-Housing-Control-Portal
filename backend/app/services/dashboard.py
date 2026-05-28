@@ -295,27 +295,26 @@ def recent_activity(limit: int = 15) -> list[dict]:
 def alerts() -> dict:
     """Group alerts by severity for the alert center / notification bell."""
     today = date.today()
-    expiring = (
-        Landlord.query
-        .filter(Landlord.agreement_expiry_date.isnot(None))
-        .filter(Landlord.status == "active")
+    active_agreements = (
+        PropertyAgreement.query
+        .filter(PropertyAgreement.is_active.is_(True))
         .all()
     )
     expired = []
     soon_7 = []
     soon_30 = []
     soon_90 = []
-    for l in expiring:
-        bucket = agreement_bucket(l.agreement_expiry_date, today)
-        days_left = (l.agreement_expiry_date - today).days
-        first_property = Property.query.filter_by(landlord_id=l.id).first()
+    for ag in active_agreements:
+        bucket = agreement_bucket(ag.expiry_date, today)
+        days_left = (ag.expiry_date - today).days
+        prop = ag.property
         entry = {
-            "agreement_id": l.id,
-            "landlord_id": l.id,
-            "landlord_name": l.name,
-            "property_id": first_property.id if first_property else None,
-            "property_name": first_property.name if first_property else None,
-            "expiry_date": l.agreement_expiry_date.isoformat(),
+            "agreement_id": ag.id,
+            "landlord_id": ag.landlord_id,
+            "landlord_name": ag.landlord.name if ag.landlord else None,
+            "property_id": prop.id if prop else None,
+            "property_name": prop.name if prop else None,
+            "expiry_date": ag.expiry_date.isoformat(),
             "days_left": days_left,
             "bucket": bucket,
         }

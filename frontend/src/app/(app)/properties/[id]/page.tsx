@@ -27,9 +27,9 @@ type Property = {
   ownership_type: string;
   status: string;
   managed_by: string | null;
-  total_floors: number | null;
-  total_rooms: number | null;
-  total_bed_capacity: number | null;
+  floors_count: number;
+  rooms_count: number;
+  beds_count: number;
   remarks: string | null;
   default_division: { id: number; code: string; name: string } | null;
   active_agreement: Agreement | null;
@@ -147,9 +147,9 @@ function OverviewTab({ property }: { property: Property }) {
         <Cell k="Area" v={property.area} />
         <Cell k="City" v={property.city} />
         <Cell k="Default division" v={property.default_division?.name} />
-        <Cell k="Total floors" v={property.total_floors} />
-        <Cell k="Total rooms" v={property.total_rooms} />
-        <Cell k="Total beds" v={property.total_bed_capacity} />
+        <Cell k="Floors" v={property.floors_count} />
+        <Cell k="Rooms" v={property.rooms_count} />
+        <Cell k="Beds" v={property.beds_count} />
         {property.remarks && (
           <div className="col-span-full">
             <div className="text-xs uppercase tracking-wide text-muted-foreground">Remarks</div>

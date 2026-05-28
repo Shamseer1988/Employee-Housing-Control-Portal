@@ -20,8 +20,7 @@ STATUSES = {"active", "inactive", "maintenance", "vacated"}
 EDITABLE_FIELDS = {
     "name", "property_type", "building_number", "zone", "street", "area", "city",
     "map_link", "gps_lat", "gps_lng", "ownership_type", "status", "managed_by",
-    "default_division_id", "landlord_id", "multi_division_allowed",
-    "total_floors", "total_rooms", "total_bed_capacity", "remarks",
+    "default_division_id", "landlord_id", "multi_division_allowed", "remarks",
 }
 
 
@@ -31,6 +30,47 @@ def _parse_date(value):
     if isinstance(value, date):
         return value
     return datetime.fromisoformat(value).date()
+
+
+def _counts_for(prop_id: int) -> dict:
+    """Live counts of floors, rooms and beds for a property."""
+    return {
+        "floors_count": db.session.query(db.func.count(Floor.id))
+            .filter(Floor.property_id == prop_id).scalar() or 0,
+        "rooms_count": db.session.query(db.func.count(Room.id))
+            .filter(Room.property_id == prop_id).scalar() or 0,
+        "beds_count": db.session.query(db.func.count(Bed.id))
+            .filter(Bed.property_id == prop_id).scalar() or 0,
+    }
+
+
+def _counts_for_many(prop_ids: list[int]) -> dict[int, dict]:
+    """One-shot count aggregator for the list endpoint to avoid N+1."""
+    if not prop_ids:
+        return {}
+    floor_rows = (
+        db.session.query(Floor.property_id, db.func.count(Floor.id))
+        .filter(Floor.property_id.in_(prop_ids))
+        .group_by(Floor.property_id).all()
+    )
+    room_rows = (
+        db.session.query(Room.property_id, db.func.count(Room.id))
+        .filter(Room.property_id.in_(prop_ids))
+        .group_by(Room.property_id).all()
+    )
+    bed_rows = (
+        db.session.query(Bed.property_id, db.func.count(Bed.id))
+        .filter(Bed.property_id.in_(prop_ids))
+        .group_by(Bed.property_id).all()
+    )
+    out: dict[int, dict] = {pid: {"floors_count": 0, "rooms_count": 0, "beds_count": 0} for pid in prop_ids}
+    for pid, n in floor_rows:
+        out[pid]["floors_count"] = n
+    for pid, n in room_rows:
+        out[pid]["rooms_count"] = n
+    for pid, n in bed_rows:
+        out[pid]["beds_count"] = n
+    return out
 
 
 @properties_bp.get("")
@@ -60,14 +100,22 @@ def list_properties():
         query = query.filter(db.func.lower(Property.city) == city.lower())
 
     rows = query.order_by(Property.name.asc()).all()
-    return success_response(data=[r.to_dict() for r in rows], meta={"count": len(rows)})
+    counts = _counts_for_many([r.id for r in rows])
+    data = []
+    for r in rows:
+        d = r.to_dict()
+        d.update(counts.get(r.id, {"floors_count": 0, "rooms_count": 0, "beds_count": 0}))
+        data.append(d)
+    return success_response(data=data, meta={"count": len(rows)})
 
 
 @properties_bp.get("/<int:prop_id>")
 @require_permission("property.view")
 def get_property(prop_id: int):
     prop = Property.query.get_or_404(prop_id)
-    return success_response(data=prop.to_dict())
+    data = prop.to_dict()
+    data.update(_counts_for(prop_id))
+    return success_response(data=data)
 
 
 @properties_bp.post("")

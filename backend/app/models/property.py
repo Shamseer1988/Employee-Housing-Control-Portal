@@ -80,18 +80,6 @@ class Property(BaseModel):
                 "code": self.landlord.code,
                 "name": self.landlord.name,
                 "mobile": self.landlord.mobile,
-                "agreement_start_date": (
-                    self.landlord.agreement_start_date.isoformat()
-                    if self.landlord.agreement_start_date else None
-                ),
-                "agreement_expiry_date": (
-                    self.landlord.agreement_expiry_date.isoformat()
-                    if self.landlord.agreement_expiry_date else None
-                ),
-                "monthly_rent": (
-                    float(self.landlord.monthly_rent)
-                    if self.landlord.monthly_rent is not None else None
-                ),
             }
         else:
             data["landlord"] = None

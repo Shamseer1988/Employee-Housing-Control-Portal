@@ -382,34 +382,35 @@ def _r_agreement_expiry(filters: dict) -> dict:
     today = date.today()
     cutoff = today + timedelta(days=days)
     q = (
-        Landlord.query
-        .filter(Landlord.agreement_expiry_date.isnot(None))
-        .filter(Landlord.agreement_expiry_date <= cutoff)
-        .filter(Landlord.status == "active")
-        .order_by(Landlord.agreement_expiry_date.asc())
+        PropertyAgreement.query
+        .filter(PropertyAgreement.is_active.is_(True))
+        .filter(PropertyAgreement.expiry_date <= cutoff)
+        .order_by(PropertyAgreement.expiry_date.asc())
     )
     rows = []
-    for l in q.all():
-        properties = Property.query.filter_by(landlord_id=l.id).all()
-        prop_names = ", ".join(p.name for p in properties) if properties else "—"
+    for ag in q.all():
+        prop = ag.property
+        ll = ag.landlord
         rows.append({
-            "landlord_code": l.code,
-            "landlord": l.name,
-            "properties": prop_names,
-            "property_count": len(properties),
-            "start_date": l.agreement_start_date.isoformat() if l.agreement_start_date else None,
-            "expiry_date": l.agreement_expiry_date.isoformat() if l.agreement_expiry_date else None,
-            "days_left": (l.agreement_expiry_date - today).days,
-            "bucket": agreement_bucket(l.agreement_expiry_date, today),
-            "monthly_rent": float(l.monthly_rent) if l.monthly_rent is not None else None,
-            "reminder_days": l.reminder_days_before_expiry,
+            "property_code": prop.code if prop else None,
+            "property": prop.name if prop else "—",
+            "landlord_code": ll.code if ll else None,
+            "landlord": ll.name if ll else "—",
+            "agreement_number": ag.agreement_number,
+            "start_date": ag.start_date.isoformat() if ag.start_date else None,
+            "expiry_date": ag.expiry_date.isoformat() if ag.expiry_date else None,
+            "days_left": (ag.expiry_date - today).days,
+            "bucket": agreement_bucket(ag.expiry_date, today),
+            "monthly_rent": float(ag.monthly_rent) if ag.monthly_rent is not None else None,
+            "reminder_days": ag.reminder_days_before_expiry,
         })
     return {
         "columns": [
+            {"key": "property_code", "label": "Property code", "width": 14},
+            {"key": "property", "label": "Property", "width": 28},
             {"key": "landlord_code", "label": "Landlord code", "width": 14},
             {"key": "landlord", "label": "Landlord", "width": 24},
-            {"key": "properties", "label": "Properties", "width": 32},
-            {"key": "property_count", "label": "# props"},
+            {"key": "agreement_number", "label": "Agreement #", "width": 16},
             {"key": "start_date", "label": "Start", "width": 12},
             {"key": "expiry_date", "label": "Expiry", "width": 12},
             {"key": "days_left", "label": "Days left"},

@@ -18,17 +18,14 @@ type Property = {
   area: string | null;
   status: string;
   ownership_type: string;
-  total_floors: number | null;
-  total_rooms: number | null;
-  total_bed_capacity: number | null;
+  floors_count: number;
+  rooms_count: number;
+  beds_count: number;
   default_division: { id: number; code: string; name: string } | null;
   landlord: {
     id: number;
     code: string;
     name: string;
-    agreement_start_date: string | null;
-    agreement_expiry_date: string | null;
-    monthly_rent: number | null;
   } | null;
   active_agreement: {
     id: number;
@@ -131,9 +128,7 @@ export default function PropertiesPage() {
             </div>
           )}
           {rows.map((p) => {
-            // Prefer the landlord-direct expiry; fall back to legacy
-            // PropertyAgreement.expiry_date for older data.
-            const expiry = p.landlord?.agreement_expiry_date ?? p.active_agreement?.expiry_date ?? null;
+            const expiry = p.active_agreement?.expiry_date ?? null;
             const days = expiry ? Math.ceil((new Date(expiry).getTime() - Date.now()) / 86400000) : null;
             const expiringSoon = days !== null && days <= 90;
             const expired = days !== null && days < 0;
@@ -162,9 +157,9 @@ export default function PropertiesPage() {
                   <MapPin className="h-3 w-3" /> {[p.area, p.city].filter(Boolean).join(", ") || "—"}
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                  <Stat label="Floors" value={p.total_floors} />
-                  <Stat label="Rooms" value={p.total_rooms} />
-                  <Stat label="Beds" value={p.total_bed_capacity} />
+                  <Stat label="Floors" value={p.floors_count} />
+                  <Stat label="Rooms" value={p.rooms_count} />
+                  <Stat label="Beds" value={p.beds_count} />
                 </div>
                 {landlordName && (
                   <div className={"mt-3 text-xs flex items-center gap-1 " + (expired ? "text-destructive" : expiringSoon ? "text-amber-600" : "text-muted-foreground")}>
@@ -193,7 +188,7 @@ function Stat({ label, value }: { label: string; value: number | null }) {
   );
 }
 
-type LandlordOption = { id: number; code: string; name: string; agreement_expiry_date: string | null };
+type LandlordOption = { id: number; code: string; name: string };
 
 function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState<Record<string, unknown>>({ property_type: "full_building", ownership_type: "rented", status: "active" });
@@ -232,7 +227,7 @@ function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
               <option value="">— None —</option>
               {landlords.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.name} ({l.code}){l.agreement_expiry_date ? ` · exp ${l.agreement_expiry_date}` : ""}
+                  {l.name} ({l.code})
                 </option>
               ))}
             </select>
@@ -259,11 +254,11 @@ function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
             </select>
           </Field>
           <Field label="Managed by"><input className={inputClass} onChange={(e) => set("managed_by", e.target.value)} /></Field>
-          <Field label="Total floors"><input type="number" className={inputClass} onChange={(e) => set("total_floors", e.target.value ? Number(e.target.value) : null)} /></Field>
-          <Field label="Total rooms"><input type="number" className={inputClass} onChange={(e) => set("total_rooms", e.target.value ? Number(e.target.value) : null)} /></Field>
-          <Field label="Total bed capacity"><input type="number" className={inputClass} onChange={(e) => set("total_bed_capacity", e.target.value ? Number(e.target.value) : null)} /></Field>
         </div>
         <Field label="Remarks"><textarea className={textareaClass} onChange={(e) => set("remarks", e.target.value)} /></Field>
+        <div className="text-xs text-muted-foreground">
+          Floors, rooms and beds are added from the property detail page after creation. The card counts update live as you add them.
+        </div>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
           <button type="submit" disabled={busy} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
