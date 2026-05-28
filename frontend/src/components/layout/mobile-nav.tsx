@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -34,11 +35,14 @@ const nav: NavItem[] = [
 
 export function MobileNav() {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   const has = useAuth((s) => s.has);
   const companyName = useCompanyName();
   const logoUrl = useCompanyLogo();
   const [pendingTotal, setPendingTotal] = useState(0);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (!has("assignment.view")) return;
@@ -49,25 +53,32 @@ export function MobileNav() {
 
   useEffect(() => { setOpen(false); }, [pathname]);
 
+  // Lock body scroll + close on Escape while the drawer is open.
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   const items = nav.filter((n) => !n.perm || has(n.perm));
 
-  return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card/60 hover:bg-accent"
-        aria-label="Open navigation"
-      >
-        <Menu className="h-4 w-4" />
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-50 lg:hidden"
-          >
+  // Portal the drawer to <body>: the topbar uses backdrop-blur which
+  // creates a containing block for `position: fixed`, otherwise the
+  // drawer gets clipped to the topbar strip instead of covering the page.
+  const drawer = mounted ? createPortal(
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-[100] lg:hidden"
+        >
             <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
             <motion.aside
               initial={{ x: -320 }} animate={{ x: 0 }} exit={{ x: -320 }}
@@ -126,9 +137,24 @@ export function MobileNav() {
                 v0.13.0 · Phase 13
               </div>
             </motion.aside>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
+  ) : null;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card/60 hover:bg-accent"
+        aria-label="Open navigation"
+        aria-expanded={open}
+      >
+        <Menu className="h-4 w-4" />
+      </button>
+      {drawer}
     </>
   );
 }
