@@ -17,6 +17,7 @@ backend/migrations/versions/*.pyc
 node_modules/
 .next/
 out/
+*.tsbuildinfo
 .DS_Store
 *.log
 npm-debug.log*
