@@ -172,3 +172,67 @@ def test_attachment_upload_and_download(client, auth_headers):
 def test_property_view_requires_permission(client):
     resp = client.get("/api/v1/properties")
     assert resp.status_code == 401
+
+
+def _make_property(client, auth_headers):
+    landlord = client.post("/api/v1/landlords", headers=auth_headers,
+                           json={"name": "LL Status"}).get_json()["data"]
+    prop = client.post("/api/v1/properties", headers=auth_headers,
+                       json={"name": "Status HQ", "property_type": "full_building",
+                             "landlord_id": landlord["id"]}).get_json()["data"]
+    return prop, landlord
+
+
+def test_status_change_happy_path(client, auth_headers):
+    prop, _ = _make_property(client, auth_headers)
+    r = client.post(f"/api/v1/properties/{prop['id']}/status", headers=auth_headers,
+                    json={"status": "on_hold", "reason": "agreement-expired"})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.get_json()["data"]["status"] == "on_hold"
+
+
+def test_status_change_rejects_invalid_status(client, auth_headers):
+    prop, _ = _make_property(client, auth_headers)
+    r = client.post(f"/api/v1/properties/{prop['id']}/status", headers=auth_headers,
+                    json={"status": "exploded", "reason": "x"})
+    assert r.status_code == 400
+
+
+def test_status_change_requires_reason_when_leaving_active(client, auth_headers):
+    prop, _ = _make_property(client, auth_headers)
+    r = client.post(f"/api/v1/properties/{prop['id']}/status", headers=auth_headers,
+                    json={"status": "inactive"})
+    assert r.status_code == 400
+    assert "reason" in r.get_json()["message"].lower()
+
+
+def test_status_change_blocked_by_occupancy(client, auth_headers):
+    prop, _ = _make_property(client, auth_headers)
+    floor = client.post(f"/api/v1/properties/{prop['id']}/floors", headers=auth_headers,
+                        json={"floor_number": "1"}).get_json()["data"]
+    room = client.post(f"/api/v1/floors/{floor['id']}/rooms", headers=auth_headers,
+                       json={"room_number": "101", "capacity": 1}).get_json()["data"]
+    bed = client.post(f"/api/v1/rooms/{room['id']}/beds", headers=auth_headers,
+                      json={"bed_number": "1"}).get_json()["data"]
+    div = client.post("/api/v1/divisions", headers=auth_headers,
+                      json={"name": "Status Test"}).get_json()["data"]
+    emp = client.post("/api/v1/employees", headers=auth_headers,
+                      json={"full_name": "Inhabitant", "division_id": div["id"]}).get_json()["data"]
+    client.post("/api/v1/assignments", headers=auth_headers,
+                json={"employee_id": emp["id"], "bed_id": bed["id"]})
+
+    r = client.post(f"/api/v1/properties/{prop['id']}/status", headers=auth_headers,
+                    json={"status": "inactive", "reason": "shutting down"})
+    assert r.status_code == 409, r.get_data(as_text=True)
+    body = r.get_json()
+    assert body["details"]["blocked"] is True
+    assert body["details"]["occupied"] == 1
+    assert any(s["employee_name"] == "Inhabitant" for s in body["details"]["sample_employees"])
+
+
+def test_put_status_now_rejected(client, auth_headers):
+    prop, _ = _make_property(client, auth_headers)
+    r = client.put(f"/api/v1/properties/{prop['id']}", headers=auth_headers,
+                   json={"status": "on_hold"})
+    assert r.status_code == 400
+    assert "/status" in r.get_json()["message"]

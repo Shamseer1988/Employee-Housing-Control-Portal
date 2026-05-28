@@ -40,7 +40,14 @@ const PROPERTY_TYPES = [
   "temporary_accommodation",
 ];
 const OWNERSHIP = ["rented", "company_owned", "temporary"];
-const STATUSES = ["active", "inactive", "maintenance", "vacated"];
+const STATUSES = ["active", "inactive", "maintenance", "on_hold"];
+
+function statusBadgeClass(s: string): string {
+  if (s === "active") return "bg-emerald-500/10 text-emerald-600";
+  if (s === "on_hold") return "bg-amber-500/10 text-amber-600";
+  if (s === "maintenance") return "bg-sky-500/10 text-sky-600";
+  return "bg-muted text-muted-foreground";
+}
 
 export default function PropertiesPage() {
   const [rows, setRows] = useState<Property[]>([]);
@@ -146,8 +153,8 @@ export default function PropertiesPage() {
                       <div className="text-xs text-muted-foreground font-mono">{p.code}</div>
                     </div>
                   </div>
-                  <span className={"rounded-full px-2 py-0.5 text-xs " + (p.status === "active" ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground")}>
-                    {p.status}
+                  <span className={"rounded-full px-2 py-0.5 text-xs capitalize " + statusBadgeClass(p.status)}>
+                    {p.status.replace("_", " ")}
                   </span>
                 </div>
                 <div className="mt-3 text-xs text-muted-foreground capitalize">
@@ -191,13 +198,13 @@ function Stat({ label, value }: { label: string; value: number | null }) {
 type LandlordOption = { id: number; code: string; name: string };
 
 function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState<Record<string, unknown>>({ property_type: "full_building", ownership_type: "rented", status: "active" });
+  const [form, setForm] = useState<Record<string, unknown>>({ property_type: "full_building", ownership_type: "rented" });
   const [landlords, setLandlords] = useState<LandlordOption[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setForm({ property_type: "full_building", ownership_type: "rented", status: "active" });
+      setForm({ property_type: "full_building", ownership_type: "rented" });
       api.get("/landlords").then((r) => setLandlords(r.data.data)).catch(() => setLandlords([]));
     }
   }, [open]);
@@ -246,11 +253,6 @@ function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
           <Field label="Ownership">
             <select className={selectClass} value={String(form.ownership_type ?? "rented")} onChange={(e) => set("ownership_type", e.target.value)}>
               {OWNERSHIP.map((o) => <option key={o} value={o}>{o.replaceAll("_", " ")}</option>)}
-            </select>
-          </Field>
-          <Field label="Status">
-            <select className={selectClass} value={String(form.status ?? "active")} onChange={(e) => set("status", e.target.value)}>
-              {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </Field>
           <Field label="Managed by"><input className={inputClass} onChange={(e) => set("managed_by", e.target.value)} /></Field>

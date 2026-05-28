@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   ArrowLeft, Building2, Paperclip, FileText, Layers, BedDouble,
   Calendar, AlertTriangle, Plus, Pencil, Wrench, Lock, Trash2,
+  SlidersHorizontal,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
@@ -60,6 +61,7 @@ export default function PropertyDetail({ params }: { params: Promise<{ id: strin
   const [tab, setTab] = useState<TabKey>("overview");
   const [property, setProperty] = useState<Property | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showStatusModal, setShowStatusModal] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -98,11 +100,29 @@ export default function PropertyDetail({ params }: { params: Promise<{ id: strin
               <span className="font-mono">{property.code}</span> · <span className="capitalize">{property.property_type.replaceAll("_", " ")}</span> · {[property.area, property.city].filter(Boolean).join(", ") || "—"}
             </p>
           </div>
-          <span className={"rounded-full px-3 py-1 text-xs " + (property.status === "active" ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground")}>
-            {property.status}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={"rounded-full px-3 py-1 text-xs capitalize " + statusBadgeClass(property.status)}>
+              {property.status.replace("_", " ")}
+            </span>
+            <Can perm="property.deactivate">
+              <button
+                type="button"
+                onClick={() => setShowStatusModal(true)}
+                className="h-8 inline-flex items-center gap-1 rounded-md border border-border bg-card/60 px-2 text-xs hover:bg-accent"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" /> Change status
+              </button>
+            </Can>
+          </div>
         </div>
       </div>
+
+      <PropertyStatusModal
+        open={showStatusModal}
+        property={property}
+        onClose={() => setShowStatusModal(false)}
+        onChanged={async () => { setShowStatusModal(false); await load(); }}
+      />
 
       <div className="flex border-b border-border overflow-x-auto">
         {tabs.map(({ key, label, icon: Icon }) => (
@@ -981,5 +1001,180 @@ function BedsPanel({ room, onChanged, onEditRoom }: {
       </Can>
     </div>
   );
+}
+
+const STATUS_OPTIONS: { value: string; label: string; tone: string; help: string }[] = [
+  { value: "active",      label: "Active",       tone: "border-emerald-500 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400", help: "Property is operational. New assignments are allowed." },
+  { value: "on_hold",     label: "On hold",      tone: "border-amber-500 bg-amber-500/5 text-amber-700 dark:text-amber-400",          help: "Temporarily paused. New assignments blocked. Existing residents stay until you transfer them." },
+  { value: "maintenance", label: "Maintenance",  tone: "border-sky-500 bg-sky-500/5 text-sky-700 dark:text-sky-400",                  help: "Property is under repair. New assignments blocked." },
+  { value: "inactive",    label: "Inactive",     tone: "border-rose-500 bg-rose-500/5 text-rose-700 dark:text-rose-400",              help: "Permanently retired (lease ended, sold, demolished). New assignments blocked." },
+];
+
+const REASON_OPTIONS = [
+  { value: "agreement_expired",  label: "Agreement expired / not renewed" },
+  { value: "renovation",         label: "Renovation / major repair" },
+  { value: "ownership_dispute",  label: "Ownership dispute" },
+  { value: "end_of_lease",       label: "End of lease — handed back to landlord" },
+  { value: "regulatory_hold",    label: "Regulatory / municipality hold" },
+  { value: "other",              label: "Other (explain in remarks)" },
+];
+
+type BlockedDetails = {
+  blocked: true;
+  occupied: number;
+  reserved: number;
+  sample_employees: { employee_id: number; employee_code: string; employee_name: string; bed_id: number; bed_code: string }[];
+};
+
+function PropertyStatusModal({ open, property, onClose, onChanged }: {
+  open: boolean; property: Property; onClose: () => void; onChanged: () => void;
+}) {
+  const [target, setTarget] = useState<string>(property.status);
+  const [reason, setReason] = useState<string>("agreement_expired");
+  const [remarks, setRemarks] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [snapshot, setSnapshot] = useState<{ occupied: number; reserved: number } | null>(null);
+  const [blocked, setBlocked] = useState<BlockedDetails | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setTarget(property.status);
+    setReason("agreement_expired");
+    setRemarks("");
+    setBlocked(null);
+    api.get(`/properties/${property.id}/occupancy-snapshot`)
+      .then((r) => setSnapshot(r.data.data))
+      .catch(() => setSnapshot(null));
+  }, [open, property.id, property.status]);
+
+  const movingAway = target !== "active" && target !== property.status;
+  const needsReason = movingAway;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (target === property.status) return;
+    setBusy(true);
+    setBlocked(null);
+    try {
+      const resp = await api.post(`/properties/${property.id}/status`, {
+        status: target,
+        reason: needsReason ? reason : "",
+        remarks: remarks || null,
+      });
+      toast.success(resp.data?.message ?? `Property set to ${target}`);
+      onChanged();
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { message?: string; details?: BlockedDetails } } };
+      if (e.response?.status === 409 && e.response.data?.details?.blocked) {
+        setBlocked(e.response.data.details);
+      } else {
+        toast.error("Status change failed", errorMessage(err));
+      }
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Change status — ${property.name}`} size="lg">
+      <form onSubmit={submit} className="space-y-4">
+        <div className="rounded-lg border border-border bg-card/40 p-3 text-xs text-muted-foreground">
+          Currently <span className="font-medium capitalize text-foreground">{property.status.replace("_", " ")}</span>
+          {snapshot && (
+            <>
+              {" · "}
+              <span className="font-medium text-foreground">{snapshot.occupied}</span> occupied bed{snapshot.occupied === 1 ? "" : "s"}
+              {" · "}
+              <span className="font-medium text-foreground">{snapshot.reserved}</span> reserved
+            </>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {STATUS_OPTIONS.map((s) => {
+            const selected = target === s.value;
+            const isCurrent = s.value === property.status;
+            return (
+              <button
+                key={s.value}
+                type="button"
+                disabled={isCurrent}
+                onClick={() => setTarget(s.value)}
+                className={
+                  "text-left rounded-lg border-2 px-3 py-2 transition-colors " +
+                  (selected ? s.tone : "border-border bg-card/30 hover:bg-accent/30") +
+                  (isCurrent ? " opacity-50 cursor-not-allowed" : "")
+                }
+              >
+                <div className="text-sm font-medium flex items-center gap-2">
+                  {s.label}
+                  {isCurrent && <span className="text-[10px] uppercase tracking-wide opacity-70">(current)</span>}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">{s.help}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        {needsReason && (
+          <>
+            <Field label="Reason">
+              <select className={selectClass} value={reason} onChange={(e) => setReason(e.target.value)}>
+                {REASON_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Remarks (optional)">
+              <textarea className={textareaClass} rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+            </Field>
+          </>
+        )}
+
+        {blocked && (
+          <div className="rounded-lg border-2 border-rose-500/60 bg-rose-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2 text-rose-600 text-sm font-medium">
+              <AlertTriangle className="h-4 w-4" />
+              Cannot change status — {blocked.occupied} bed{blocked.occupied === 1 ? "" : "s"} occupied, {blocked.reserved} reserved
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Transfer or cancel these assignments first, then try again.
+            </div>
+            {blocked.sample_employees.length > 0 && (
+              <ul className="text-xs space-y-1">
+                {blocked.sample_employees.map((s) => (
+                  <li key={s.employee_id} className="flex items-center justify-between gap-2 rounded-md bg-card/60 px-2 py-1">
+                    <span>
+                      <Link href={`/employees/${s.employee_id}`} className="font-medium hover:text-primary">{s.employee_name}</Link>
+                      {" "}<span className="font-mono text-muted-foreground">({s.employee_code})</span>
+                      {" "}— bed <span className="font-mono">{s.bed_code}</span>
+                    </span>
+                    <Link href={`/transactions/transfers/new`} className="text-primary hover:underline">Transfer →</Link>
+                  </li>
+                ))}
+                {blocked.occupied > blocked.sample_employees.length && (
+                  <li className="text-muted-foreground">…and {blocked.occupied - blocked.sample_employees.length} more.</li>
+                )}
+              </ul>
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Close</button>
+          <button
+            type="submit"
+            disabled={busy || target === property.status || (needsReason && !reason)}
+            className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+          >
+            {busy ? "Saving…" : "Apply status"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function statusBadgeClass(s: string): string {
+  if (s === "active") return "bg-emerald-500/10 text-emerald-600";
+  if (s === "on_hold") return "bg-amber-500/10 text-amber-600";
+  if (s === "maintenance") return "bg-sky-500/10 text-sky-600";
+  return "bg-muted text-muted-foreground";
 }
 

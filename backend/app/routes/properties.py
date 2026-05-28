@@ -2,7 +2,7 @@ from datetime import date, datetime
 from flask import Blueprint, request
 
 from ..extensions import db
-from ..models import Property, PropertyAgreement, Landlord, Division, Floor, Room, Bed
+from ..models import Property, PropertyAgreement, Landlord, Division, Floor, Room, Bed, Employee
 from ..services import audit, codes, reminders, occupancy
 from ..utils.auth import require_permission, current_user
 from ..utils.responses import success_response, error_response
@@ -15,13 +15,16 @@ PROPERTY_TYPES = {
     "shared_accommodation", "temporary_accommodation",
 }
 OWNERSHIP_TYPES = {"rented", "company_owned", "temporary"}
-STATUSES = {"active", "inactive", "maintenance", "vacated"}
+STATUSES = {"active", "inactive", "maintenance", "on_hold", "vacated"}
+USER_FACING_STATUSES = {"active", "inactive", "maintenance", "on_hold"}
 
 EDITABLE_FIELDS = {
     "name", "property_type", "building_number", "zone", "street", "area", "city",
-    "map_link", "gps_lat", "gps_lng", "ownership_type", "status", "managed_by",
+    "map_link", "gps_lat", "gps_lng", "ownership_type", "managed_by",
     "default_division_id", "landlord_id", "multi_division_allowed", "remarks",
 }
+# `status` is intentionally NOT here — it must go through /status so the
+# occupancy guard cannot be bypassed.
 
 
 def _parse_date(value):
@@ -166,12 +169,15 @@ def update_property(prop_id: int):
     actor = current_user()
     old = prop.to_dict()
 
+    if "status" in payload:
+        return error_response(
+            "Status changes go through POST /properties/{id}/status — see the property control modal.",
+            400,
+        )
     if "property_type" in payload and payload["property_type"] not in PROPERTY_TYPES:
         return error_response("Invalid property_type", 400)
     if "ownership_type" in payload and payload["ownership_type"] not in OWNERSHIP_TYPES:
         return error_response("Invalid ownership_type", 400)
-    if "status" in payload and payload["status"] not in STATUSES:
-        return error_response("Invalid status", 400)
     if "default_division_id" in payload and payload["default_division_id"]:
         if not Division.query.get(payload["default_division_id"]):
             return error_response("default_division_id not found", 400)
@@ -189,15 +195,135 @@ def update_property(prop_id: int):
     return success_response(data=prop.to_dict(), message="Property updated")
 
 
+def _occupancy_snapshot(prop_id: int) -> dict:
+    """Counts and a sample of who's still in the property — used to
+    explain blocked status changes."""
+    occupied = (
+        db.session.query(db.func.count(Bed.id))
+        .filter(Bed.property_id == prop_id, Bed.status == "occupied")
+        .scalar() or 0
+    )
+    reserved = (
+        db.session.query(db.func.count(Bed.id))
+        .filter(Bed.property_id == prop_id, Bed.status == "reserved")
+        .scalar() or 0
+    )
+    sample: list[dict] = []
+    if occupied:
+        beds = (
+            Bed.query
+            .filter(Bed.property_id == prop_id, Bed.status == "occupied")
+            .limit(10).all()
+        )
+        for b in beds:
+            emp = (
+                Employee.query
+                .filter(Employee.current_bed_id == b.id)
+                .first()
+            )
+            if emp:
+                sample.append({
+                    "employee_id": emp.id, "employee_code": emp.code,
+                    "employee_name": emp.full_name,
+                    "bed_id": b.id, "bed_code": b.bed_code,
+                })
+    return {"occupied": occupied, "reserved": reserved, "sample": sample}
+
+
+@properties_bp.post("/<int:prop_id>/status")
+@require_permission("property.deactivate")
+def change_property_status(prop_id: int):
+    prop = Property.query.get_or_404(prop_id)
+    payload = request.get_json(silent=True) or {}
+    new_status = (payload.get("status") or "").strip()
+    reason = (payload.get("reason") or "").strip()
+    remarks = (payload.get("remarks") or "").strip() or None
+
+    if new_status not in USER_FACING_STATUSES:
+        return error_response(
+            f"status must be one of {sorted(USER_FACING_STATUSES)}", 400,
+        )
+    if new_status == prop.status:
+        return error_response(f"Property is already {new_status}", 400)
+    if new_status != "active" and not reason:
+        return error_response("reason is required when moving away from active", 400)
+
+    # Guard: refuse to move out of active while beds are held.
+    if new_status != "active":
+        snap = _occupancy_snapshot(prop.id)
+        if snap["occupied"] or snap["reserved"]:
+            return error_response(
+                (
+                    f"Cannot set {prop.name} to {new_status} — "
+                    f"{snap['occupied']} bed(s) occupied and {snap['reserved']} reserved. "
+                    "Cancel or transfer those assignments first."
+                ),
+                status=409,
+                details={
+                    "blocked": True,
+                    "occupied": snap["occupied"],
+                    "reserved": snap["reserved"],
+                    "sample_employees": snap["sample"],
+                },
+            )
+
+    actor = current_user()
+    old_status = prop.status
+    prop.status = new_status
+    prop.updated_by = actor.id
+    audit.record(
+        user=actor, action="status_change", module="property",
+        entity_type="property", entity_id=prop.id,
+        old_value={"status": old_status},
+        new_value={"status": new_status, "reason": reason, "remarks": remarks},
+        remarks=reason or remarks,
+    )
+    db.session.commit()
+    return success_response(
+        data=prop.to_dict(),
+        message=f"Property {prop.code} set to {new_status}",
+    )
+
+
+@properties_bp.get("/<int:prop_id>/occupancy-snapshot")
+@require_permission("property.view")
+def property_occupancy_snapshot(prop_id: int):
+    Property.query.get_or_404(prop_id)
+    return success_response(data=_occupancy_snapshot(prop_id))
+
+
 @properties_bp.delete("/<int:prop_id>")
 @require_permission("property.deactivate")
 def deactivate_property(prop_id: int):
+    """Legacy endpoint — routed through the same guard."""
     prop = Property.query.get_or_404(prop_id)
+    if prop.status == "inactive":
+        return error_response("Property is already inactive", 400)
+    snap = _occupancy_snapshot(prop.id)
+    if snap["occupied"] or snap["reserved"]:
+        return error_response(
+            (
+                f"Cannot deactivate {prop.name} — "
+                f"{snap['occupied']} bed(s) occupied and {snap['reserved']} reserved. "
+                "Cancel or transfer those assignments first."
+            ),
+            status=409,
+            details={
+                "blocked": True,
+                "occupied": snap["occupied"],
+                "reserved": snap["reserved"],
+                "sample_employees": snap["sample"],
+            },
+        )
     actor = current_user()
     prop.status = "inactive"
     prop.updated_by = actor.id
-    audit.record(user=actor, action="deactivate", module="property",
-                 entity_type="property", entity_id=prop.id)
+    audit.record(
+        user=actor, action="status_change", module="property",
+        entity_type="property", entity_id=prop.id,
+        old_value={"status": "active"}, new_value={"status": "inactive"},
+        remarks="deactivated via DELETE",
+    )
     db.session.commit()
     return success_response(message="Property deactivated")
 
