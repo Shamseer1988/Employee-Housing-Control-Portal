@@ -60,7 +60,10 @@ export default function PropertiesPage() {
       if (status) params.status = status;
       if (type) params.type = type;
       const resp = await api.get("/properties", { params });
-      setRows(resp.data.data);
+      const list = Array.isArray(resp?.data?.data) ? resp.data.data : [];
+      setRows(list);
+    } catch {
+      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -151,7 +154,9 @@ export default function PropertiesPage() {
                     {p.status}
                   </span>
                 </div>
-                <div className="mt-3 text-xs text-muted-foreground capitalize">{p.property_type.replaceAll("_", " ")} · {p.ownership_type.replaceAll("_", " ")}</div>
+                <div className="mt-3 text-xs text-muted-foreground capitalize">
+                  {(p.property_type ?? "—").replaceAll("_", " ")} · {(p.ownership_type ?? "—").replaceAll("_", " ")}
+                </div>
                 <div className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
                   <MapPin className="h-3 w-3" /> {[p.area, p.city].filter(Boolean).join(", ") || "—"}
                 </div>
