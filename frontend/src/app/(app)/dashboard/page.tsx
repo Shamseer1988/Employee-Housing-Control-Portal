@@ -70,24 +70,31 @@ export default function DashboardPage() {
 
   useEffect(() => {
     (async () => {
-      try {
-        const [s, p, m, a] = await Promise.all([
-          api.get("/dashboard/summary"),
-          api.get("/dashboard/charts/occupancy-by-property"),
-          api.get("/dashboard/charts/monthly-movement", { params: { months: 6 } }),
-          api.get("/dashboard/activity", { params: { limit: 12 } }),
-        ]);
-        setSummary(s.data.data);
-        setByProperty(p.data.data);
-        setMonthly(m.data.data);
-        setActivity(a.data.data);
-      } finally {
-        setLoading(false);
-      }
+      // Fire each request independently — one chart failing must not
+      // leave the rest of the dashboard stuck in skeleton state.
+      const safe = async <T,>(p: Promise<{ data: { data: T } }>): Promise<T | null> => {
+        try {
+          const r = await p;
+          return r?.data?.data ?? null;
+        } catch {
+          return null;
+        }
+      };
+      const [s, p, m, a] = await Promise.all([
+        safe<Summary>(api.get("/dashboard/summary")),
+        safe<OccupancyByProperty[]>(api.get("/dashboard/charts/occupancy-by-property")),
+        safe<MonthlyRow[]>(api.get("/dashboard/charts/monthly-movement", { params: { months: 6 } })),
+        safe<ActivityRow[]>(api.get("/dashboard/activity", { params: { limit: 12 } })),
+      ]);
+      if (s) setSummary(s);
+      if (Array.isArray(p)) setByProperty(p);
+      if (Array.isArray(m)) setMonthly(m);
+      if (Array.isArray(a)) setActivity(a);
+      setLoading(false);
     })();
   }, []);
 
-  if (loading || !summary) {
+  if (loading) {
     return (
       <div className="space-y-6 animate-fade-in">
         <div className="space-y-2">
@@ -107,6 +114,21 @@ export default function DashboardPage() {
           <div className="glass rounded-xl p-4 lg:col-span-2 h-72"><Skeleton className="h-full w-full" /></div>
           <div className="glass rounded-xl p-4 h-72"><Skeleton className="h-full w-full" /></div>
         </div>
+      </div>
+    );
+  }
+
+  // Fall-through after loading: render with whatever loaded; show a
+  // banner if summary itself failed so the user knows there's a problem
+  // instead of staring at empty cards.
+  if (!summary) {
+    return (
+      <div className="glass rounded-xl p-10 text-center border border-destructive/30 bg-destructive/5 space-y-2">
+        <div className="font-medium text-destructive">Dashboard data couldn&apos;t be loaded.</div>
+        <div className="text-xs text-muted-foreground">The summary API didn&apos;t respond. Check the browser DevTools network tab for details, then refresh.</div>
+        <button onClick={() => window.location.reload()} className="mt-2 inline-flex items-center gap-1 rounded-md border border-border bg-card/60 px-3 py-1.5 text-xs hover:bg-accent">
+          Refresh
+        </button>
       </div>
     );
   }

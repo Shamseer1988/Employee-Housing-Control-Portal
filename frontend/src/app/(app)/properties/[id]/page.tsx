@@ -1,6 +1,7 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouteParams } from "@/lib/use-route-params";
 import Link from "next/link";
 import {
   ArrowLeft, Building2, Paperclip, FileText, Layers, BedDouble,
@@ -54,7 +55,7 @@ type Landlord = { id: number; code: string; name: string };
 type TabKey = "overview" | "agreement" | "floors" | "rooms" | "attachments";
 
 export default function PropertyDetail({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+  const { id } = useRouteParams(params);
   const [tab, setTab] = useState<TabKey>("overview");
   const [property, setProperty] = useState<Property | null>(null);
   const [loading, setLoading] = useState(true);
@@ -673,24 +674,32 @@ function MiniStat({ label, value }: { label: string; value: number }) {
   );
 }
 
+const ROOM_CAPACITY_OPTIONS = [1, 2, 3, 4, 5, 6];
+const ROOM_BED_TYPES = ["single", "bunk_upper", "bunk_lower"] as const;
+
 function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
   open: boolean; floorId: number | null; floors: Floor[]; editing: Room | null;
   onClose: () => void; onSaved: () => void;
 }) {
   const [form, setForm] = useState<Record<string, unknown>>({});
+  const [autoCreateBeds, setAutoCreateBeds] = useState(true);
+  const [autoBedType, setAutoBedType] = useState<typeof ROOM_BED_TYPES[number]>("single");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (editing) {
       setForm(editing as unknown as Record<string, unknown>);
+      setAutoCreateBeds(false);
     } else {
-      setForm({ room_type: "shared", capacity: 1, allowed_gender: "any", has_bathroom: false, has_ac: true });
+      setForm({ room_type: "shared", capacity: 2, allowed_gender: "any", has_bathroom: false, has_ac: true });
+      setAutoCreateBeds(true);
     }
     setError(null);
   }, [editing, open]);
 
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
+  const capacity = Math.max(1, Math.min(6, Number(form.capacity ?? 1)));
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -700,7 +709,21 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
         await api.put(`/rooms/${editing.id}`, form);
       } else {
         if (!floorId) throw new Error("No floor selected");
-        await api.post(`/floors/${floorId}/rooms`, form);
+        const resp = await api.post(`/floors/${floorId}/rooms`, form);
+        const newRoom = resp.data?.data;
+        if (autoCreateBeds && newRoom?.id) {
+          // Spin up `capacity` beds named 1..N.
+          for (let i = 1; i <= capacity; i++) {
+            try {
+              await api.post(`/rooms/${newRoom.id}/beds`, {
+                bed_number: String(i),
+                bed_type: autoBedType,
+              });
+            } catch {
+              /* keep going; the user can re-add manually */
+            }
+          }
+        }
       }
       onSaved();
     } catch (err: unknown) {
@@ -710,7 +733,7 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
 
   return (
     <Modal open={open} onClose={onClose} title={editing ? `Edit room ${editing.room_number}` : "New room"}>
-      <form onSubmit={save} className="space-y-3">
+      <form onSubmit={save} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           {!editing && (
             <Field label="Floor" span={2}>
@@ -720,38 +743,95 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
             </Field>
           )}
           <Field label="Room number"><input required className={inputClass} value={String(form.room_number ?? "")} onChange={(e) => set("room_number", e.target.value)} /></Field>
-          <Field label="Name"><input className={inputClass} value={String(form.room_name ?? "")} onChange={(e) => set("room_name", e.target.value)} /></Field>
+          <Field label="Name"><input className={inputClass} value={String(form.room_name ?? "")} onChange={(e) => set("room_name", e.target.value)} placeholder="Optional" /></Field>
           <Field label="Type">
             <select className={selectClass} value={String(form.room_type ?? "shared")} onChange={(e) => set("room_type", e.target.value)}>
               {ROOM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </Field>
-          <Field label="Capacity"><input required type="number" min={1} className={inputClass} value={Number(form.capacity ?? 1)} onChange={(e) => set("capacity", Number(e.target.value))} /></Field>
           <Field label="Allowed gender">
             <select className={selectClass} value={String(form.allowed_gender ?? "any")} onChange={(e) => set("allowed_gender", e.target.value)}>
               {GENDERS.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
           </Field>
-          <Field label="Monthly rent"><input type="number" step="0.01" className={inputClass} value={form.monthly_rent != null ? String(form.monthly_rent) : ""} onChange={(e) => set("monthly_rent", e.target.value ? Number(e.target.value) : null)} /></Field>
-          <Field label="Bathroom">
-            <label className="flex items-center gap-2 h-9">
-              <input type="checkbox" checked={Boolean(form.has_bathroom)} onChange={(e) => set("has_bathroom", e.target.checked)} />
-              <span className="text-sm">Attached bathroom</span>
-            </label>
-          </Field>
-          <Field label="AC">
-            <label className="flex items-center gap-2 h-9">
-              <input type="checkbox" checked={Boolean(form.has_ac)} onChange={(e) => set("has_ac", e.target.checked)} />
-              <span className="text-sm">AC available</span>
-            </label>
+          <Field label="Monthly rent"><input type="number" step="0.01" className={inputClass} value={form.monthly_rent != null ? String(form.monthly_rent) : ""} onChange={(e) => set("monthly_rent", e.target.value ? Number(e.target.value) : null)} placeholder="Optional" /></Field>
+          <Field label="Amenities">
+            <div className="flex items-center gap-3 h-9">
+              <label className="inline-flex items-center gap-1.5 text-sm">
+                <input type="checkbox" checked={Boolean(form.has_bathroom)} onChange={(e) => set("has_bathroom", e.target.checked)} />
+                Bathroom
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-sm">
+                <input type="checkbox" checked={Boolean(form.has_ac)} onChange={(e) => set("has_ac", e.target.checked)} />
+                AC
+              </label>
+            </div>
           </Field>
         </div>
-        <Field label="Remarks"><textarea className={textareaClass} value={String(form.remarks ?? "")} onChange={(e) => set("remarks", e.target.value)} /></Field>
+
+        {/* Capacity picker: 1-6 buttons */}
+        <Field label={`Capacity (${capacity} bed${capacity === 1 ? "" : "s"})`}>
+          <div className="flex flex-wrap gap-2">
+            {ROOM_CAPACITY_OPTIONS.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => set("capacity", n)}
+                className={
+                  "h-9 w-12 rounded-md border text-sm font-medium transition-colors " +
+                  (n === capacity
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-border bg-card/60 hover:bg-accent")
+                }
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        {!editing && (
+          <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
+            <label className="inline-flex items-start gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoCreateBeds}
+                onChange={(e) => setAutoCreateBeds(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-medium">Automatically add {capacity} bed{capacity === 1 ? "" : "s"}</span>
+                <span className="block text-xs text-muted-foreground">
+                  Creates beds numbered 1 to {capacity} with codes like
+                  {" "}<span className="font-mono">PROP-FX-RY-B1…B{capacity}</span>. Skip and add them manually later if you prefer.
+                </span>
+              </span>
+            </label>
+            {autoCreateBeds && (
+              <div className="flex items-center gap-2 pl-6">
+                <span className="text-xs text-muted-foreground">Bed type:</span>
+                <select
+                  className={selectClass + " w-auto"}
+                  value={autoBedType}
+                  onChange={(e) => setAutoBedType(e.target.value as typeof ROOM_BED_TYPES[number])}
+                >
+                  {ROOM_BED_TYPES.map((t) => (
+                    <option key={t} value={t}>{t.replace("_", " ")}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+
+        <Field label="Remarks">
+          <textarea className={textareaClass} value={String(form.remarks ?? "")} onChange={(e) => set("remarks", e.target.value)} />
+        </Field>
         {error && <div className="text-sm text-destructive">{error}</div>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
           <button type="submit" disabled={busy} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-            {busy ? "Saving…" : "Save"}
+            {busy ? "Saving…" : (editing ? "Save changes" : autoCreateBeds ? `Create room + ${capacity} bed${capacity === 1 ? "" : "s"}` : "Create room")}
           </button>
         </div>
       </form>

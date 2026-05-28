@@ -1,6 +1,7 @@
 "use client";
 
-import { use, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouteParams } from "@/lib/use-route-params";
 import Link from "next/link";
 import {
   ArrowLeft, Download, Printer, Eye, EyeOff, ArrowUp, ArrowDown,
@@ -128,7 +129,7 @@ export default function ReportPage(props: { params: Promise<{ slug: string }> })
 }
 
 function ReportPageInner({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = use(params);
+  const { slug } = useRouteParams(params);
 
   const [info, setInfo] = useState<ReportInfo | null>(null);
   const [filters, setFilters] = useState<Record<string, string>>({});

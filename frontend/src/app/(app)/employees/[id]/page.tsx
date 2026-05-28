@@ -1,6 +1,7 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouteParams } from "@/lib/use-route-params";
 import Link from "next/link";
 import { ArrowLeft, User, Paperclip, BedDouble } from "lucide-react";
 import { api } from "@/lib/api";
@@ -42,7 +43,7 @@ const STATUS_TONE: Record<string, string> = {
 type TabKey = "profile" | "documents" | "accommodation";
 
 export default function EmployeeDetail({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+  const { id } = useRouteParams(params);
   const [emp, setEmp] = useState<Employee | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabKey>("profile");

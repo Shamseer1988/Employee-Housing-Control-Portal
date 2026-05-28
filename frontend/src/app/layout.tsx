@@ -17,6 +17,11 @@ export const metadata: Metadata = {
     title: "PUG Housing",
     statusBarStyle: "black-translucent",
   },
+  // Mirror the Apple PWA capability hint with the standard one so we don't
+  // ship a deprecated-only tag.
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
   icons: {
     icon: [
       { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },

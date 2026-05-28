@@ -208,31 +208,28 @@ def monthly_movement(months: int = 6) -> list[dict]:
         )
         return {ym: n for ym, n in rows}
 
-    # SQLAlchemy strftime works for SQLite. For Postgres we'd use to_char,
-    # but the function takes the column directly so falling back via
-    # `extract` keeps things portable; the test suite uses SQLite, prod
-    # will switch when we add a Postgres-only patch.
-    try:
-        ass = _by_month(AccommodationAssignment, AccommodationAssignment.assignment_date)
-        trn = _by_month(AccommodationTransfer, AccommodationTransfer.transfer_date)
-        canc = _by_month(AccommodationCancellation, AccommodationCancellation.cancellation_date)
-        vac = _by_month(EmployeeVacation, EmployeeVacation.vacation_start_date)
-    except Exception:  # pragma: no cover - Postgres-specific fallback
-        def _pg(model, date_col):
-            rows = (
-                db.session.query(
-                    func.to_char(date_col, "YYYY-MM").label("ym"),
-                    func.count(model.id),
-                )
-                .filter(date_col >= first_of_window)
-                .group_by("ym")
-                .all()
-            )
-            return {ym: n for ym, n in rows}
-        ass = _pg(AccommodationAssignment, AccommodationAssignment.assignment_date)
-        trn = _pg(AccommodationTransfer, AccommodationTransfer.transfer_date)
-        canc = _pg(AccommodationCancellation, AccommodationCancellation.cancellation_date)
-        vac = _pg(EmployeeVacation, EmployeeVacation.vacation_start_date)
+    # Aggregate in Python — works identically on SQLite, Postgres, MySQL,
+    # never depends on dialect-specific date functions, and never leaves
+    # the session in an aborted state if a query fails.
+    def _by_month(model, date_col):
+        rows = (
+            db.session.query(date_col)
+            .filter(date_col.isnot(None))
+            .filter(date_col >= first_of_window)
+            .all()
+        )
+        counts: dict[str, int] = {}
+        for (d,) in rows:
+            if d is None:
+                continue
+            key = d.strftime("%Y-%m")
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    ass = _by_month(AccommodationAssignment, AccommodationAssignment.assignment_date)
+    trn = _by_month(AccommodationTransfer, AccommodationTransfer.transfer_date)
+    canc = _by_month(AccommodationCancellation, AccommodationCancellation.cancellation_date)
+    vac = _by_month(EmployeeVacation, EmployeeVacation.vacation_start_date)
 
     out = []
     for d in keys:
