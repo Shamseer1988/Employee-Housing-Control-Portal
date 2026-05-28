@@ -7,10 +7,17 @@ def _seed(client, auth_headers):
     """Create one property + room + 2 beds, 1 division, 2 employees, post an assignment."""
     div = client.post("/api/v1/divisions", headers=auth_headers,
                       json={"name": "Retail"}).get_json()["data"]
-    prop = client.post("/api/v1/properties", headers=auth_headers,
-                       json={"name": "Doha B12", "property_type": "full_building", "city": "Doha"}).get_json()["data"]
+    today = date.today()
     landlord = client.post("/api/v1/landlords", headers=auth_headers,
-                           json={"name": "Mansoor"}).get_json()["data"]
+                           json={
+                               "name": "Mansoor",
+                               "agreement_start_date": (today - timedelta(days=200)).isoformat(),
+                               "agreement_expiry_date": (today + timedelta(days=20)).isoformat(),
+                               "monthly_rent": 10000,
+                           }).get_json()["data"]
+    prop = client.post("/api/v1/properties", headers=auth_headers,
+                       json={"name": "Doha B12", "property_type": "full_building",
+                             "city": "Doha", "landlord_id": landlord["id"]}).get_json()["data"]
     floor = client.post(f"/api/v1/properties/{prop['id']}/floors", headers=auth_headers,
                         json={"floor_number": "1"}).get_json()["data"]
     room = client.post(f"/api/v1/floors/{floor['id']}/rooms", headers=auth_headers,
@@ -25,12 +32,6 @@ def _seed(client, auth_headers):
                      json={"full_name": "Bilal", "gender": "male", "division_id": div["id"]}).get_json()["data"]
     client.post("/api/v1/assignments", headers=auth_headers,
                 json={"employee_id": e1["id"], "bed_id": b1["id"]})
-    today = date.today()
-    client.post(f"/api/v1/properties/{prop['id']}/agreements", headers=auth_headers,
-                json={"landlord_id": landlord["id"],
-                      "start_date": (today - timedelta(days=200)).isoformat(),
-                      "expiry_date": (today + timedelta(days=20)).isoformat(),
-                      "monthly_rent": 10000})
     return {"division": div, "property": prop, "room": room, "beds": [b1, b2],
             "employees": [e1, e2], "landlord": landlord}
 
@@ -111,9 +112,10 @@ def test_agreement_expiry_report(client, auth_headers):
     payload = resp.get_json()["data"]
     rows = payload["rows"]
     assert len(rows) >= 1
-    only = next(r for r in rows if r["property_code"] == s["property"]["code"])
+    only = next(r for r in rows if r["landlord_code"] == s["landlord"]["code"])
     assert only["bucket"] in ("30", "60", "expired", "7", "15")
     assert only["days_left"] is not None
+    assert s["property"]["name"] in (only["properties"] or "")
 
 
 def test_audit_trail_report(client, auth_headers):

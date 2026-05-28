@@ -11,7 +11,24 @@ import {
 } from "@tanstack/react-table";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { inputClass, selectClass } from "@/components/ui/dialog";
+
+function renderCellValue(v: unknown): React.ReactNode {
+  if (v === null || v === undefined || v === "") {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  if (typeof v === "number") return Number.isInteger(v) ? v.toString() : v.toLocaleString();
+  if (typeof v === "string") return v;
+  // Defensive: stringify objects / arrays so a stray nested object never
+  // crashes the whole report viewer.
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}
 
 type Column = { key: string; label: string; width?: number };
 type Row = Record<string, unknown>;
@@ -102,7 +119,15 @@ function saveFilters(slug: string, filters: Record<string, string>) {
   window.localStorage.setItem(`${SAVED_FILTERS_KEY}.${slug}`, JSON.stringify(filters));
 }
 
-export default function ReportPage({ params }: { params: Promise<{ slug: string }> }) {
+export default function ReportPage(props: { params: Promise<{ slug: string }> }) {
+  return (
+    <ErrorBoundary fallbackTitle="The report viewer crashed.">
+      <ReportPageInner {...props} />
+    </ErrorBoundary>
+  );
+}
+
+function ReportPageInner({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
 
   const [info, setInfo] = useState<ReportInfo | null>(null);
@@ -160,17 +185,14 @@ export default function ReportPage({ params }: { params: Promise<{ slug: string 
   };
 
   const columns = useMemo<ColumnDef<Row>[]>(() => {
-    if (!payload) return [];
+    if (!payload || !Array.isArray(payload.columns)) return [];
+    // Use accessorFn (not accessorKey) so keys with dots, special chars,
+    // or unexpected shapes never confuse TanStack's path resolver.
     return payload.columns.map((c) => ({
       id: c.key,
-      accessorKey: c.key,
-      header: c.label,
-      cell: ({ getValue }) => {
-        const v = getValue();
-        if (v === null || v === undefined || v === "") return <span className="text-muted-foreground">—</span>;
-        if (typeof v === "boolean") return v ? "yes" : "no";
-        return String(v);
-      },
+      accessorFn: (row: Row) => row?.[c.key],
+      header: () => c.label,
+      cell: (ctx) => renderCellValue(ctx.getValue()),
     }));
   }, [payload]);
 
@@ -271,12 +293,15 @@ export default function ReportPage({ params }: { params: Promise<{ slug: string 
         <div className="glass rounded-xl p-4 print-hidden">
           <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Visible columns</div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-            {table.getAllLeafColumns().map((c) => (
-              <label key={c.id} className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={c.getIsVisible()} onChange={c.getToggleVisibilityHandler()} />
-                {String(c.columnDef.header)}
-              </label>
-            ))}
+            {table.getAllLeafColumns().map((c) => {
+              const meta = payload?.columns.find((col) => col.key === c.id);
+              return (
+                <label key={c.id} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={c.getIsVisible()} onChange={c.getToggleVisibilityHandler()} />
+                  {meta?.label ?? c.id}
+                </label>
+              );
+            })}
           </div>
         </div>
       )}

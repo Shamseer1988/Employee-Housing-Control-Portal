@@ -35,6 +35,7 @@ class Property(BaseModel):
     managed_by = Column(String(120), nullable=True)
 
     default_division_id = Column(Integer, ForeignKey("divisions.id", ondelete="SET NULL"), nullable=True)
+    landlord_id = Column(Integer, ForeignKey("landlords.id", ondelete="SET NULL"), nullable=True, index=True)
     multi_division_allowed = Column(Boolean, default=True, nullable=False)
 
     total_floors = Column(Integer, nullable=True)
@@ -44,6 +45,7 @@ class Property(BaseModel):
     remarks = Column(Text, nullable=True)
 
     default_division = relationship("Division", lazy="joined")
+    landlord = relationship("Landlord", lazy="joined")
     agreements = relationship(
         "PropertyAgreement", back_populates="property", lazy="select", cascade="all, delete-orphan"
     )
@@ -71,6 +73,28 @@ class Property(BaseModel):
                 data[k] = float(data[k])
         active = self.active_agreement()
         data["active_agreement"] = active.to_dict() if active else None
+
+        if self.landlord is not None:
+            data["landlord"] = {
+                "id": self.landlord.id,
+                "code": self.landlord.code,
+                "name": self.landlord.name,
+                "mobile": self.landlord.mobile,
+                "agreement_start_date": (
+                    self.landlord.agreement_start_date.isoformat()
+                    if self.landlord.agreement_start_date else None
+                ),
+                "agreement_expiry_date": (
+                    self.landlord.agreement_expiry_date.isoformat()
+                    if self.landlord.agreement_expiry_date else None
+                ),
+                "monthly_rent": (
+                    float(self.landlord.monthly_rent)
+                    if self.landlord.monthly_rent is not None else None
+                ),
+            }
+        else:
+            data["landlord"] = None
         return data
 
 

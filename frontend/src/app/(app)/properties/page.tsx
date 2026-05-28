@@ -21,6 +21,14 @@ type Property = {
   total_rooms: number | null;
   total_bed_capacity: number | null;
   default_division: { id: number; code: string; name: string } | null;
+  landlord: {
+    id: number;
+    code: string;
+    name: string;
+    agreement_start_date: string | null;
+    agreement_expiry_date: string | null;
+    monthly_rent: number | null;
+  } | null;
   active_agreement: {
     id: number;
     expiry_date: string;
@@ -119,10 +127,13 @@ export default function PropertiesPage() {
             </div>
           )}
           {rows.map((p) => {
-            const expiry = p.active_agreement?.expiry_date;
+            // Prefer the landlord-direct expiry; fall back to legacy
+            // PropertyAgreement.expiry_date for older data.
+            const expiry = p.landlord?.agreement_expiry_date ?? p.active_agreement?.expiry_date ?? null;
             const days = expiry ? Math.ceil((new Date(expiry).getTime() - Date.now()) / 86400000) : null;
             const expiringSoon = days !== null && days <= 90;
             const expired = days !== null && days < 0;
+            const landlordName = p.landlord?.name ?? p.active_agreement?.landlord?.name ?? null;
             return (
               <Link key={p.id} href={`/properties/${p.id}`}
                 className="glass rounded-xl p-4 hover:bg-accent/30 transition-colors block">
@@ -149,10 +160,10 @@ export default function PropertiesPage() {
                   <Stat label="Rooms" value={p.total_rooms} />
                   <Stat label="Beds" value={p.total_bed_capacity} />
                 </div>
-                {p.active_agreement && (
+                {landlordName && (
                   <div className={"mt-3 text-xs flex items-center gap-1 " + (expired ? "text-destructive" : expiringSoon ? "text-amber-600" : "text-muted-foreground")}>
                     {expiringSoon && <AlertTriangle className="h-3 w-3" />}
-                    {p.active_agreement.landlord.name} · {expired ? "expired" : `expires ${expiry}${days !== null ? ` (${days}d)` : ""}`}
+                    {landlordName}{expiry ? ` · ${expired ? "expired" : `expires ${expiry}${days !== null ? ` (${days}d)` : ""}`}` : ""}
                   </div>
                 )}
               </Link>
@@ -176,8 +187,11 @@ function Stat({ label, value }: { label: string; value: number | null }) {
   );
 }
 
+type LandlordOption = { id: number; code: string; name: string; agreement_expiry_date: string | null };
+
 function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState<Record<string, unknown>>({ property_type: "full_building", ownership_type: "rented", status: "active" });
+  const [landlords, setLandlords] = useState<LandlordOption[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -185,6 +199,7 @@ function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
     if (open) {
       setForm({ property_type: "full_building", ownership_type: "rented", status: "active" });
       setError(null);
+      api.get("/landlords").then((r) => setLandlords(r.data.data)).catch(() => setLandlords([]));
     }
   }, [open]);
 
@@ -206,6 +221,16 @@ function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
       <form onSubmit={save} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Name"><input required className={inputClass} onChange={(e) => set("name", e.target.value)} /></Field>
+          <Field label="Landlord">
+            <select className={selectClass} value={String(form.landlord_id ?? "")} onChange={(e) => set("landlord_id", e.target.value ? Number(e.target.value) : null)}>
+              <option value="">— None —</option>
+              {landlords.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name} ({l.code}){l.agreement_expiry_date ? ` · exp ${l.agreement_expiry_date}` : ""}
+                </option>
+              ))}
+            </select>
+          </Field>
           <Field label="Type">
             <select className={selectClass} value={String(form.property_type ?? "")} onChange={(e) => set("property_type", e.target.value)}>
               {PROPERTY_TYPES.map((t) => <option key={t} value={t}>{t.replaceAll("_", " ")}</option>)}

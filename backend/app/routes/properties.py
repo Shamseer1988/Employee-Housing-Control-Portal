@@ -20,7 +20,7 @@ STATUSES = {"active", "inactive", "maintenance", "vacated"}
 EDITABLE_FIELDS = {
     "name", "property_type", "building_number", "zone", "street", "area", "city",
     "map_link", "gps_lat", "gps_lng", "ownership_type", "status", "managed_by",
-    "default_division_id", "multi_division_allowed",
+    "default_division_id", "landlord_id", "multi_division_allowed",
     "total_floors", "total_rooms", "total_bed_capacity", "remarks",
 }
 
@@ -89,6 +89,9 @@ def create_property():
     if payload.get("default_division_id"):
         if not Division.query.get(payload["default_division_id"]):
             return error_response("default_division_id not found", 400)
+    if payload.get("landlord_id"):
+        if not Landlord.query.get(payload["landlord_id"]):
+            return error_response("landlord_id not found", 400)
     if payload.get("ownership_type") and payload["ownership_type"] not in OWNERSHIP_TYPES:
         return error_response("Invalid ownership_type", 400)
     if payload.get("status") and payload["status"] not in STATUSES:
@@ -124,6 +127,9 @@ def update_property(prop_id: int):
     if "default_division_id" in payload and payload["default_division_id"]:
         if not Division.query.get(payload["default_division_id"]):
             return error_response("default_division_id not found", 400)
+    if "landlord_id" in payload and payload["landlord_id"]:
+        if not Landlord.query.get(payload["landlord_id"]):
+            return error_response("landlord_id not found", 400)
 
     for k in EDITABLE_FIELDS:
         if k in payload:

@@ -72,6 +72,21 @@ def _seed_super_user(role_index: dict[str, Role]) -> User:
 
 
 def register_commands(app: Flask) -> None:
+    @app.cli.command("seed-demo")
+    def seed_demo():
+        """Populate the database with realistic demo data for testing.
+
+        Creates 4 landlords (mixed expiry buckets), 6 divisions, 4 properties
+        with floors/rooms/beds, 30 employees and ~18 active accommodation
+        assignments. Idempotent: existing rows are left alone.
+        """
+        from .services.demo_data import seed_all
+        click.echo("Seeding demo data...")
+        counts = seed_all()
+        for k, v in counts.items():
+            click.echo(f"  → {k}: {v}")
+        click.echo("Done. Sign in as admin and explore.")
+
     @app.cli.command("init-db")
     def init_db():
         """Create all tables from the SQLAlchemy models.

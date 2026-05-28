@@ -3,7 +3,7 @@ from sqlalchemy import func, case
 
 from ..extensions import db
 from ..models import (
-    Property, Floor, Room, Bed, Employee, PropertyAgreement, MaintenanceRecord,
+    Property, Floor, Room, Bed, Employee, Landlord, PropertyAgreement, MaintenanceRecord,
     AccommodationAssignment, AccommodationTransfer, AccommodationCancellation,
     EmployeeVacation, LandlordRenewal,
 )
@@ -299,23 +299,26 @@ def alerts() -> dict:
     """Group alerts by severity for the alert center / notification bell."""
     today = date.today()
     expiring = (
-        PropertyAgreement.query
-        .filter(PropertyAgreement.is_active.is_(True))
+        Landlord.query
+        .filter(Landlord.agreement_expiry_date.isnot(None))
+        .filter(Landlord.status == "active")
         .all()
     )
     expired = []
     soon_7 = []
     soon_30 = []
     soon_90 = []
-    for a in expiring:
-        bucket = agreement_bucket(a.expiry_date, today)
-        days_left = (a.expiry_date - today).days
+    for l in expiring:
+        bucket = agreement_bucket(l.agreement_expiry_date, today)
+        days_left = (l.agreement_expiry_date - today).days
+        first_property = Property.query.filter_by(landlord_id=l.id).first()
         entry = {
-            "agreement_id": a.id,
-            "property_id": a.property_id,
-            "property_name": a.property.name if a.property else None,
-            "landlord_name": a.landlord.name if a.landlord else None,
-            "expiry_date": a.expiry_date.isoformat(),
+            "agreement_id": l.id,
+            "landlord_id": l.id,
+            "landlord_name": l.name,
+            "property_id": first_property.id if first_property else None,
+            "property_name": first_property.name if first_property else None,
+            "expiry_date": l.agreement_expiry_date.isoformat(),
             "days_left": days_left,
             "bucket": bucket,
         }
