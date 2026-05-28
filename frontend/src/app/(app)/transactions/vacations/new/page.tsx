@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/lib/api";
 import { Field, inputClass, textareaClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 import { EmployeePicker, type PickerEmployee } from "@/components/employee-picker";
 
 export default function NewVacationPage() {
@@ -31,9 +32,11 @@ export default function NewVacationPage() {
         remarks: remarks || null,
       });
       const txn = resp.data.data.transaction_number;
-      router.replace(`/transactions/vacations?posted=${encodeURIComponent(txn)}`);
+      toast.success(`Vacation ${txn} posted`);
+      router.replace(`/transactions/vacations`);
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Post failed");
+      toast.error("Post failed", errorMessage(err));
+      setError(errorMessage(err, "Post failed"));
       setSubmitting(false);
     }
   };

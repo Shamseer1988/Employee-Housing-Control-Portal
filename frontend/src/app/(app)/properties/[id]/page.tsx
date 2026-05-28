@@ -10,6 +10,7 @@ import {
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { Modal, Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 import { AttachmentsTab } from "@/components/attachments-tab";
 
 type Property = {
@@ -287,22 +288,22 @@ function AgreementDialog({ open, propertyId, landlords, onClose, onSaved }: {
 }) {
   const [form, setForm] = useState<Record<string, unknown>>({ reminder_days_before_expiry: 90 });
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) { setForm({ reminder_days_before_expiry: 90 }); setError(null); }
+    if (open) { setForm({ reminder_days_before_expiry: 90 }); }
   }, [open]);
 
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true); setError(null);
+    setBusy(true);
     try {
       await api.post(`/properties/${propertyId}/agreements`, form);
+      toast.success("Agreement saved");
       onSaved();
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Save failed");
+      toast.error("Save failed", errorMessage(err));
     } finally { setBusy(false); }
   };
 
@@ -330,7 +331,6 @@ function AgreementDialog({ open, propertyId, landlords, onClose, onSaved }: {
           <Field label="Municipality ref"><input className={inputClass} onChange={(e) => set("municipality_ref", e.target.value)} /></Field>
         </div>
         <Field label="Remarks"><textarea className={textareaClass} onChange={(e) => set("remarks", e.target.value)} /></Field>
-        {error && <div className="text-sm text-destructive">{error}</div>}
         <div className="text-xs text-muted-foreground">
           Posting this will archive any existing active agreement on this property.
         </div>
@@ -424,9 +424,10 @@ function FloorsTab({ propertyId }: { propertyId: number }) {
     if (!confirm(`Delete floor ${f.floor_number}?`)) return;
     try {
       await api.delete(`/floors/${f.id}`);
+      toast.success(`Floor ${f.floor_number} deleted`);
       await load();
     } catch (err: unknown) {
-      alert((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Delete failed");
+      toast.error("Delete failed", errorMessage(err));
     }
   };
 
@@ -499,20 +500,24 @@ function FloorDialog({ open, propertyId, editing, onClose, onSaved }: {
 }) {
   const [form, setForm] = useState<Partial<Floor>>({});
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => { setForm(editing ?? { status: "active" }); setError(null); }, [editing, open]);
+  useEffect(() => { setForm(editing ?? { status: "active" }); }, [editing, open]);
 
   const set = <K extends keyof Floor>(k: K, v: Floor[K] | null | undefined) => setForm((f) => ({ ...f, [k]: v }));
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true); setError(null);
+    setBusy(true);
     try {
-      if (editing) await api.put(`/floors/${editing.id}`, form);
-      else await api.post(`/properties/${propertyId}/floors`, form);
+      if (editing) {
+        await api.put(`/floors/${editing.id}`, form);
+        toast.success(`Floor ${editing.floor_number} updated`);
+      } else {
+        const resp = await api.post(`/properties/${propertyId}/floors`, form);
+        toast.success(`Floor ${resp.data?.data?.floor_number ?? ""} created`);
+      }
       onSaved();
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Save failed");
+      toast.error("Save failed", errorMessage(err));
     } finally { setBusy(false); }
   };
 
@@ -531,7 +536,6 @@ function FloorDialog({ open, propertyId, editing, onClose, onSaved }: {
           </Field>
         </div>
         <Field label="Remarks"><textarea className={textareaClass} value={form.remarks ?? ""} onChange={(e) => set("remarks", e.target.value)} /></Field>
-        {error && <div className="text-sm text-destructive">{error}</div>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
           <button type="submit" disabled={busy} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
@@ -685,7 +689,6 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
   const [autoCreateBeds, setAutoCreateBeds] = useState(true);
   const [autoBedType, setAutoBedType] = useState<typeof ROOM_BED_TYPES[number]>("single");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (editing) {
@@ -695,7 +698,6 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
       setForm({ room_type: "shared", capacity: 2, allowed_gender: "any", has_bathroom: false, has_ac: true });
       setAutoCreateBeds(true);
     }
-    setError(null);
   }, [editing, open]);
 
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
@@ -703,31 +705,38 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true); setError(null);
+    setBusy(true);
     try {
       if (editing) {
         await api.put(`/rooms/${editing.id}`, form);
+        toast.success(`Room ${editing.room_number} updated`);
       } else {
         if (!floorId) throw new Error("No floor selected");
         const resp = await api.post(`/floors/${floorId}/rooms`, form);
         const newRoom = resp.data?.data;
+        let bedsCreated = 0;
         if (autoCreateBeds && newRoom?.id) {
-          // Spin up `capacity` beds named 1..N.
           for (let i = 1; i <= capacity; i++) {
             try {
               await api.post(`/rooms/${newRoom.id}/beds`, {
                 bed_number: String(i),
                 bed_type: autoBedType,
               });
+              bedsCreated++;
             } catch {
               /* keep going; the user can re-add manually */
             }
           }
         }
+        const roomLabel = newRoom?.room_number ?? "";
+        toast.success(
+          `Room ${roomLabel} created`,
+          bedsCreated > 0 ? `${bedsCreated} bed${bedsCreated === 1 ? "" : "s"} added automatically.` : undefined,
+        );
       }
       onSaved();
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Save failed");
+      toast.error("Save failed", errorMessage(err));
     } finally { setBusy(false); }
   };
 
@@ -827,7 +836,6 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
         <Field label="Remarks">
           <textarea className={textareaClass} value={String(form.remarks ?? "")} onChange={(e) => set("remarks", e.target.value)} />
         </Field>
-        {error && <div className="text-sm text-destructive">{error}</div>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
           <button type="submit" disabled={busy} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
@@ -847,7 +855,6 @@ function BedsPanel({ room, onChanged, onEditRoom }: {
   const [adding, setAdding] = useState(false);
   const [newNumber, setNewNumber] = useState("");
   const [newType, setNewType] = useState("single");
-  const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -863,24 +870,26 @@ function BedsPanel({ room, onChanged, onEditRoom }: {
 
   const create = async () => {
     if (!newNumber.trim()) return;
-    setAdding(true); setError(null);
+    setAdding(true);
     try {
-      await api.post(`/rooms/${room.id}/beds`, { bed_number: newNumber.trim(), bed_type: newType });
+      const resp = await api.post(`/rooms/${room.id}/beds`, { bed_number: newNumber.trim(), bed_type: newType });
+      toast.success(`Bed ${resp.data?.data?.bed_code ?? newNumber.trim()} added`);
       setNewNumber("");
       await load();
       onChanged();
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed");
+      toast.error("Add bed failed", errorMessage(err));
     } finally { setAdding(false); }
   };
 
   const setStatus = async (bed: Bed, status: string) => {
     try {
       await api.post(`/beds/${bed.id}/status`, { status });
+      toast.success(`Bed ${bed.bed_code ?? bed.bed_number} set to ${status}`);
       await load();
       onChanged();
     } catch (err: unknown) {
-      alert((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed");
+      toast.error("Status update failed", errorMessage(err));
     }
   };
 
@@ -888,10 +897,11 @@ function BedsPanel({ room, onChanged, onEditRoom }: {
     if (!confirm(`Delete bed ${bed.bed_code}?`)) return;
     try {
       await api.delete(`/beds/${bed.id}`);
+      toast.success(`Bed ${bed.bed_code} deleted`);
       await load();
       onChanged();
     } catch (err: unknown) {
-      alert((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed");
+      toast.error("Delete failed", errorMessage(err));
     }
   };
 
@@ -968,7 +978,6 @@ function BedsPanel({ room, onChanged, onEditRoom }: {
             {adding ? "…" : "Add bed"}
           </button>
         </div>
-        {error && <div className="text-xs text-destructive">{error}</div>}
       </Can>
     </div>
   );

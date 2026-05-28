@@ -6,6 +6,7 @@ import { CheckCircle2, X, Clock, FileText } from "lucide-react";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { selectClass, textareaClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 
 type ApprovalRequest = {
   id: number;
@@ -59,12 +60,14 @@ export default function ApprovalsPage() {
   const act = async (id: number, action: "approve" | "reject", note?: string) => {
     setBusyId(id);
     try {
-      await api.post(`/approvals/${id}/${action}`, { remarks: note || null });
+      const resp = await api.post(`/approvals/${id}/${action}`, { remarks: note || null });
+      const txn = resp.data?.data?.transaction_number ?? `#${id}`;
+      toast.success(`Request ${txn} ${action === "approve" ? "approved" : "rejected"}`);
       await load();
       setRemarksFor(null);
       setRemarks("");
     } catch (err: unknown) {
-      alert((err as { response?: { data?: { message?: string } } })?.response?.data?.message || `${action} failed`);
+      toast.error(`${action === "approve" ? "Approve" : "Reject"} failed`, errorMessage(err));
     } finally { setBusyId(null); }
   };
 

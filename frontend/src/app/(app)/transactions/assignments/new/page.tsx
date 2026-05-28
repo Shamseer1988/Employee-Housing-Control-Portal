@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, BedDouble, Building2, CheckCircle2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 
 type Employee = {
   id: number;
@@ -105,9 +106,11 @@ export default function NewAssignmentPage() {
         remarks: remarks || null,
       });
       const txn = resp.data.data.transaction_number;
-      router.replace(`/transactions/assignments?posted=${encodeURIComponent(txn)}`);
+      toast.success(`Assignment ${txn} posted`);
+      router.replace(`/transactions/assignments`);
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Post failed");
+      toast.error("Post failed", errorMessage(err));
+      setError(errorMessage(err, "Post failed"));
       setSubmitting(false);
     }
   };

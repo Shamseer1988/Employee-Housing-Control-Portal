@@ -6,6 +6,7 @@ import { Plus, Pencil, Upload, Download, UserX, ChevronRight, Users as UsersIcon
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { Modal, Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 import { SkeletonTable } from "@/components/ui/states";
 
 type Division = { id: number; code: string; name: string };
@@ -220,7 +221,6 @@ function EmployeeDialog({ open, editing, divisions, onClose, onSaved }: {
 }) {
   const [form, setForm] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -232,7 +232,6 @@ function EmployeeDialog({ open, editing, divisions, onClose, onSaved }: {
       } else {
         setForm({ accommodation_required: true, status: "active" });
       }
-      setError(null);
     }
   }, [editing, open]);
 
@@ -240,18 +239,23 @@ function EmployeeDialog({ open, editing, divisions, onClose, onSaved }: {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true); setError(null);
+    setBusy(true);
     try {
       const payload: Record<string, unknown> = { ...form };
       delete payload.division;
       delete payload.current_property;
       delete payload.current_room;
       delete payload.current_bed;
-      if (editing) await api.put(`/employees/${editing.id}`, payload);
-      else await api.post("/employees", payload);
+      if (editing) {
+        const resp = await api.put(`/employees/${editing.id}`, payload);
+        toast.success(`Employee ${resp.data?.data?.code ?? editing.code} updated`);
+      } else {
+        const resp = await api.post("/employees", payload);
+        toast.success(`Employee ${resp.data?.data?.code ?? ""} created`);
+      }
       onSaved();
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Save failed");
+      toast.error("Save failed", errorMessage(err));
     } finally { setBusy(false); }
   };
 
@@ -302,7 +306,6 @@ function EmployeeDialog({ open, editing, divisions, onClose, onSaved }: {
           <Field label="Emergency contact"><input className={inputClass} value={String(form.emergency_contact ?? "")} onChange={(e) => set("emergency_contact", e.target.value)} /></Field>
         </div>
         <Field label="Remarks"><textarea className={textareaClass} value={String(form.remarks ?? "")} onChange={(e) => set("remarks", e.target.value)} /></Field>
-        {error && <div className="text-sm text-destructive">{error}</div>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
           <button type="submit" disabled={busy} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">

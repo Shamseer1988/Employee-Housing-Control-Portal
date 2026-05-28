@@ -5,6 +5,7 @@ import { Plus, Pencil, AlertTriangle, FileText, Upload, Download, Trash2 } from 
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { Modal, Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 
 type Landlord = {
   id: number;
@@ -160,8 +161,6 @@ function LandlordDialog({ open, editing, onClose, onSaved }: {
 }) {
   const [form, setForm] = useState<Partial<Landlord>>({});
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [savedId, setSavedId] = useState<number | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -169,8 +168,6 @@ function LandlordDialog({ open, editing, onClose, onSaved }: {
         status: "active",
         reminder_days_before_expiry: 90,
       } as Partial<Landlord>);
-      setError(null);
-      setSavedId(editing?.id ?? null);
     }
   }, [editing, open]);
 
@@ -179,39 +176,30 @@ function LandlordDialog({ open, editing, onClose, onSaved }: {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true); setError(null);
+    setBusy(true);
     try {
       const payload = { ...form };
       if (payload.monthly_rent === undefined || payload.monthly_rent === null || (payload.monthly_rent as unknown) === "") {
         payload.monthly_rent = null;
       }
-      let id: number;
+      let savedCode: string;
       if (editing) {
-        await api.put(`/landlords/${editing.id}`, payload);
-        id = editing.id;
+        const resp = await api.put(`/landlords/${editing.id}`, payload);
+        savedCode = resp.data?.data?.code ?? editing.code;
+        toast.success(`Landlord ${savedCode} updated`);
       } else {
         const resp = await api.post("/landlords", payload);
-        id = resp.data.data.id;
+        savedCode = resp.data?.data?.code ?? "";
+        toast.success(`Landlord ${savedCode} created`, "Open the row to attach the agreement PDF.");
       }
-      setSavedId(id);
-      // For brand-new landlord: keep dialog open so the user can upload a PDF
-      // For existing edit: close
-      if (editing) onSaved();
-      else {
-        // re-fetch but keep open
-        await onSavedKeepOpen();
-      }
+      onSaved();
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Save failed");
+      toast.error("Save failed", errorMessage(err));
     } finally { setBusy(false); }
   };
 
-  // Hack: a way to let parent refresh list without closing this dialog. Just
-  // call onSaved here would close. We provide a second action below.
-  const onSavedKeepOpen = async () => { /* no-op; refresh happens on close */ };
-
   return (
-    <Modal open={open} onClose={() => { onSaved(); }} title={editing ? "Edit landlord" : "New landlord"} size="lg">
+    <Modal open={open} onClose={onClose} title={editing ? "Edit landlord" : "New landlord"} size="lg">
       <form onSubmit={save} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Name" span={2}>
@@ -285,19 +273,17 @@ function LandlordDialog({ open, editing, onClose, onSaved }: {
           <textarea className={textareaClass} value={String(form.remarks ?? "")} onChange={(e) => set("remarks", e.target.value)} />
         </Field>
 
-        {error && <div className="text-sm text-destructive">{error}</div>}
-
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onSaved} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
+          <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
           <button type="submit" disabled={busy} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-            {busy ? "Saving…" : editing ? "Save changes" : "Save and attach PDF"}
+            {busy ? "Saving…" : editing ? "Save changes" : "Create landlord"}
           </button>
         </div>
       </form>
 
-      {savedId !== null && (
+      {editing && (
         <div className="mt-4 pt-4 border-t border-border">
-          <LandlordAttachments landlordId={savedId} />
+          <LandlordAttachments landlordId={editing.id} />
         </div>
       )}
     </Modal>

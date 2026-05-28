@@ -3,6 +3,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeBridge } from "@/components/theme-bridge";
 import { ServiceWorkerRegister } from "@/components/sw-register";
+import { Toaster } from "@/components/ui/toast";
 
 export const metadata: Metadata = {
   title: {
@@ -50,6 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <ThemeBridge />
           <ServiceWorkerRegister />
           {children}
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

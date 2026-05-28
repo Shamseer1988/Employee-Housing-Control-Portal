@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, BedDouble, Building2, ArrowRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 import { EmployeePicker, type PickerEmployee } from "@/components/employee-picker";
 
 type Property = { id: number; code: string; name: string; status: string };
@@ -68,9 +69,11 @@ export default function NewTransferPage() {
         remarks: remarks || null,
       });
       const txn = resp.data.data.transaction_number;
-      router.replace(`/transactions/transfers?posted=${encodeURIComponent(txn)}`);
+      toast.success(`Transfer ${txn} posted`);
+      router.replace(`/transactions/transfers`);
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Post failed");
+      toast.error("Post failed", errorMessage(err));
+      setError(errorMessage(err, "Post failed"));
       setSubmitting(false);
     }
   };

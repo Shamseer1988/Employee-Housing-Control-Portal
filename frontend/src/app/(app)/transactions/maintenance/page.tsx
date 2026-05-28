@@ -6,6 +6,7 @@ import { ArrowLeft, Plus, CheckCircle2, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { selectClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 
 type MaintenanceRow = {
   id: number;
@@ -51,9 +52,10 @@ export default function MaintenanceListPage() {
     if (!confirm(`Complete maintenance ${rec.transaction_number}?`)) return;
     try {
       await api.post(`/maintenance/${rec.id}/complete`, { actual_end_date: new Date().toISOString().slice(0, 10) });
+      toast.success(`Maintenance ${rec.transaction_number} completed`);
       await load();
     } catch (err: unknown) {
-      alert((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed");
+      toast.error("Complete failed", errorMessage(err));
     }
   };
 
@@ -61,9 +63,10 @@ export default function MaintenanceListPage() {
     if (!confirm(`Cancel maintenance ${rec.transaction_number}? The entity status will NOT be restored — only use this for mistaken records.`)) return;
     try {
       await api.post(`/maintenance/${rec.id}/cancel`, {});
+      toast.success(`Maintenance ${rec.transaction_number} cancelled`);
       await load();
     } catch (err: unknown) {
-      alert((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed");
+      toast.error("Cancel failed", errorMessage(err));
     }
   };
 

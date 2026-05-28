@@ -6,6 +6,7 @@ import { ArrowLeft, Plus, Plane, Undo2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { selectClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 
 type Vacation = {
   id: number;
@@ -48,9 +49,10 @@ export default function VacationsListPage() {
     if (!date) return;
     try {
       await api.post(`/vacations/${v.id}/return`, { return_date: date });
+      toast.success(`Vacation ${v.transaction_number} marked as returned`);
       await load();
     } catch (err: unknown) {
-      alert((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Failed");
+      toast.error("Mark returned failed", errorMessage(err));
     }
   };
 

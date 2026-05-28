@@ -6,6 +6,7 @@ import { Plus, Building2, MapPin, AlertTriangle } from "lucide-react";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { Modal, Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 import { Skeleton, EmptyState } from "@/components/ui/states";
 
 type Property = {
@@ -198,12 +199,10 @@ function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
   const [form, setForm] = useState<Record<string, unknown>>({ property_type: "full_building", ownership_type: "rented", status: "active" });
   const [landlords, setLandlords] = useState<LandlordOption[]>([]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setForm({ property_type: "full_building", ownership_type: "rented", status: "active" });
-      setError(null);
       api.get("/landlords").then((r) => setLandlords(r.data.data)).catch(() => setLandlords([]));
     }
   }, [open]);
@@ -212,12 +211,14 @@ function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true); setError(null);
+    setBusy(true);
     try {
-      await api.post("/properties", form);
+      const resp = await api.post("/properties", form);
+      const code = resp.data?.data?.code ?? "";
+      toast.success(`Property ${code} created`);
       onSaved();
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Save failed");
+      toast.error("Save failed", errorMessage(err));
     } finally { setBusy(false); }
   };
 
@@ -263,7 +264,6 @@ function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
           <Field label="Total bed capacity"><input type="number" className={inputClass} onChange={(e) => set("total_bed_capacity", e.target.value ? Number(e.target.value) : null)} /></Field>
         </div>
         <Field label="Remarks"><textarea className={textareaClass} onChange={(e) => set("remarks", e.target.value)} /></Field>
-        {error && <div className="text-sm text-destructive">{error}</div>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
           <button type="submit" disabled={busy} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">

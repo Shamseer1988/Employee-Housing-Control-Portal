@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/lib/api";
 import { Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 import { EmployeePicker, type PickerEmployee } from "@/components/employee-picker";
 
 const REASONS = [
@@ -38,9 +39,11 @@ export default function NewCancellationPage() {
         remarks: remarks || null,
       });
       const txn = resp.data.data.transaction_number;
-      router.replace(`/transactions/cancellations?posted=${encodeURIComponent(txn)}`);
+      toast.success(`Cancellation ${txn} posted`);
+      router.replace(`/transactions/cancellations`);
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Post failed");
+      toast.error("Post failed", errorMessage(err));
+      setError(errorMessage(err, "Post failed"));
       setSubmitting(false);
     }
   };

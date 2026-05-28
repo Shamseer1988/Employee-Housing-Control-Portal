@@ -5,6 +5,7 @@ import { Plus, Pencil } from "lucide-react";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { Modal, Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 
 type Division = {
   id: number;
@@ -142,11 +143,9 @@ function DivisionDialog({ open, editing, onClose, onSaved }: {
 }) {
   const [form, setForm] = useState<Partial<Division & { cr_number?: string; cost_center_code?: string; contact_number?: string; email?: string; hr_responsible?: string; branch_count?: number; remarks?: string }>>({});
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(editing ?? { status: "active" });
-    setError(null);
   }, [editing, open]);
 
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) =>
@@ -154,13 +153,18 @@ function DivisionDialog({ open, editing, onClose, onSaved }: {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true); setError(null);
+    setBusy(true);
     try {
-      if (editing) await api.put(`/divisions/${editing.id}`, form);
-      else await api.post("/divisions", form);
+      if (editing) {
+        const resp = await api.put(`/divisions/${editing.id}`, form);
+        toast.success(`Division ${resp.data?.data?.code ?? editing.code} updated`);
+      } else {
+        const resp = await api.post("/divisions", form);
+        toast.success(`Division ${resp.data?.data?.code ?? ""} created`);
+      }
       onSaved();
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Save failed");
+      toast.error("Save failed", errorMessage(err));
     } finally { setBusy(false); }
   };
 
@@ -193,7 +197,6 @@ function DivisionDialog({ open, editing, onClose, onSaved }: {
           </Field>
         </div>
         <Field label="Remarks"><textarea className={textareaClass} value={form.remarks ?? ""} onChange={(e) => set("remarks", e.target.value)} /></Field>
-        {error && <div className="text-sm text-destructive">{error}</div>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
           <button type="submit" disabled={busy} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">

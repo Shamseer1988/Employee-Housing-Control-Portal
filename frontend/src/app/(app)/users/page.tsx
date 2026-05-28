@@ -6,6 +6,7 @@ import { Plus, Pencil, ShieldCheck, UserX, Shield } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth, type Role } from "@/lib/auth-store";
 import { Can } from "@/components/can";
+import { toast, errorMessage } from "@/components/ui/toast";
 
 type UserRow = {
   id: number;
@@ -218,7 +219,6 @@ function UserFormDialog({
   const [roleIds, setRoleIds] = useState<number[]>(user?.roles.map((r) => r.id) ?? []);
   const [isActive, setIsActive] = useState(user?.is_active ?? true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const toggleRole = (id: number) =>
     setRoleIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
@@ -226,7 +226,6 @@ function UserFormDialog({
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    setError(null);
     try {
       if (user) {
         await api.put(`/users/${user.id}`, {
@@ -236,6 +235,7 @@ function UserFormDialog({
           role_ids: roleIds,
           ...(password ? { password } : {}),
         });
+        toast.success(`User ${user.username} updated`);
       } else {
         await api.post("/users", {
           username,
@@ -245,12 +245,11 @@ function UserFormDialog({
           role_ids: roleIds,
           is_active: isActive,
         });
+        toast.success(`User ${username} created`);
       }
       onSaved();
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Save failed";
-      setError(msg);
+      toast.error("Save failed", errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -315,8 +314,6 @@ function UserFormDialog({
             <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
             Active
           </label>
-
-          {error && <div className="text-sm text-destructive">{error}</div>}
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">

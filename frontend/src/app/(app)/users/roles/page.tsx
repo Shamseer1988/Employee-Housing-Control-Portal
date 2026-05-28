@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Save, Shield } from "lucide-react";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
+import { toast, errorMessage } from "@/components/ui/toast";
 
 type Permission = { id: number; code: string; action: string; description: string };
 type Catalog = { modules: Record<string, Permission[]>; count: number };
@@ -81,7 +82,10 @@ export default function RolesPage() {
     setSaving(true);
     try {
       await api.put(`/roles/${selected.id}`, { permission_ids: Array.from(permIds) });
+      toast.success(`Role "${selected.name}" updated`);
       await load();
+    } catch (err: unknown) {
+      toast.error("Save failed", errorMessage(err));
     } finally {
       setSaving(false);
     }

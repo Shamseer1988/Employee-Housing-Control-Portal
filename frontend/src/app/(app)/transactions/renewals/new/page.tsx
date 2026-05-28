@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Building2, AlertTriangle } from "lucide-react";
 import { api } from "@/lib/api";
 import { Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 
 type Property = {
   id: number;
@@ -90,9 +91,11 @@ export default function NewRenewalPage() {
         remarks: remarks || null,
       });
       const txn = resp.data.data.transaction_number;
-      router.replace(`/transactions/renewals?posted=${encodeURIComponent(txn)}`);
+      toast.success(`Renewal ${txn} posted`);
+      router.replace(`/transactions/renewals`);
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Post failed");
+      toast.error("Post failed", errorMessage(err));
+      setError(errorMessage(err, "Post failed"));
       setBusy(false);
     }
   };

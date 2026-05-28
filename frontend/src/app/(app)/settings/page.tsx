@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { CompanyLogoUploader } from "@/components/company-logo-uploader";
 import { inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
+import { toast, errorMessage } from "@/components/ui/toast";
 
 type FieldType = "string" | "textarea" | "bool" | "int" | "select" | "password";
 
@@ -50,7 +51,6 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Record<string, unknown>>>({});
   const [savingCategory, setSavingCategory] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
@@ -90,7 +90,6 @@ export default function SettingsPage() {
   const save = async () => {
     if (!active || !isDirty) return;
     setSavingCategory(active.category);
-    setError(null);
     try {
       await api.put("/settings", { settings: drafts[active.category] });
       setDrafts((d) => {
@@ -98,9 +97,10 @@ export default function SettingsPage() {
         delete copy[active.category];
         return copy;
       });
+      toast.success(`${active.label} settings saved`);
       await load();
     } catch (err: unknown) {
-      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Save failed");
+      toast.error("Save failed", errorMessage(err));
     } finally {
       setSavingCategory(null);
     }
@@ -183,7 +183,6 @@ export default function SettingsPage() {
                 </Can>
               </div>
 
-              {error && <div className="text-sm text-destructive">{error}</div>}
 
               <div className="space-y-3">
                 {active.category === "company" && <CompanyLogoUploader />}
