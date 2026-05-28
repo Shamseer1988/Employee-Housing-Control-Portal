@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
+import { CompanyLogoUploader } from "@/components/company-logo-uploader";
 import { inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
 
 type FieldType = "string" | "textarea" | "bool" | "int" | "select" | "password";
@@ -185,12 +186,15 @@ export default function SettingsPage() {
               {error && <div className="text-sm text-destructive">{error}</div>}
 
               <div className="space-y-3">
-                {active.settings.map((s) => (
-                  <Field key={s.key} setting={s}
-                    value={get(s.key, s.value)}
-                    onChange={(v) => setDraft(s.key, v)}
-                  />
-                ))}
+                {active.category === "company" && <CompanyLogoUploader />}
+                {active.settings
+                  .filter((s) => !(active.category === "company" && s.key === "company.logo_url"))
+                  .map((s) => (
+                    <Field key={s.key} setting={s}
+                      value={get(s.key, s.value)}
+                      onChange={(v) => setDraft(s.key, v)}
+                    />
+                  ))}
               </div>
             </>
           )}

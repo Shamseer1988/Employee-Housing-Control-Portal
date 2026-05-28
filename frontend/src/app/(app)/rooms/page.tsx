@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { Building2, BedDouble } from "lucide-react";
 import { api } from "@/lib/api";
+import { Skeleton, EmptyState } from "@/components/ui/states";
 
 type Property = {
   id: number;
@@ -17,10 +18,28 @@ type Property = {
   total_rooms: number | null;
 };
 
-type Summary = Record<number, {
-  beds: { total: number; empty: number; occupied: number; reserved: number; maintenance: number; blocked: number; occupancy_percent: number };
-  rooms: { total: number; empty: number; partially_occupied: number; full: number; maintenance: number; blocked: number };
-}>;
+type BedSummary = {
+  total?: number;
+  empty?: number;
+  occupied?: number;
+  reserved?: number;
+  maintenance?: number;
+  blocked?: number;
+  occupancy_percent?: number;
+};
+
+type RoomSummary = {
+  total?: number;
+  empty?: number;
+  partially_occupied?: number;
+  full?: number;
+  maintenance?: number;
+  blocked?: number;
+};
+
+type Summary = Record<number, { beds?: BedSummary; rooms?: RoomSummary } | null>;
+
+const n = (x: unknown): number => (typeof x === "number" && !Number.isNaN(x) ? x : 0);
 
 export default function RoomsOverviewPage() {
   const [properties, setProperties] = useState<Property[]>([]);
@@ -31,21 +50,25 @@ export default function RoomsOverviewPage() {
     (async () => {
       setLoading(true);
       try {
-        const props = (await api.get("/properties")).data.data as Property[];
-        setProperties(props);
+        const props = (await api.get("/properties")).data?.data as Property[] | undefined;
+        const list = Array.isArray(props) ? props : [];
+        setProperties(list);
         const entries = await Promise.all(
-          props.map(async (p) => {
+          list.map(async (p) => {
             try {
               const r = await api.get(`/properties/${p.id}/occupancy`);
-              return [p.id, r.data.data] as const;
+              return [p.id, r.data?.data ?? null] as const;
             } catch {
               return [p.id, null] as const;
             }
           }),
         );
         const s: Summary = {};
-        for (const [id, data] of entries) if (data) s[id] = data;
+        for (const [id, data] of entries) s[id] = data;
         setSummary(s);
+      } catch {
+        setProperties([]);
+        setSummary({});
       } finally {
         setLoading(false);
       }
@@ -55,11 +78,14 @@ export default function RoomsOverviewPage() {
   const totals = useMemo(() => {
     return Object.values(summary).reduce(
       (acc, s) => {
-        acc.beds += s.beds.total;
-        acc.occupied += s.beds.occupied;
-        acc.empty += s.beds.empty;
-        acc.maintenance += s.beds.maintenance;
-        acc.rooms += s.rooms.total;
+        if (!s) return acc;
+        const b = s.beds ?? {};
+        const r = s.rooms ?? {};
+        acc.beds += n(b.total);
+        acc.occupied += n(b.occupied);
+        acc.empty += n(b.empty);
+        acc.maintenance += n(b.maintenance);
+        acc.rooms += n(r.total);
         return acc;
       },
       { beds: 0, occupied: 0, empty: 0, maintenance: 0, rooms: 0 },
@@ -72,58 +98,73 @@ export default function RoomsOverviewPage() {
     <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight">Rooms &amp; Beds</h1>
-        <p className="text-sm text-muted-foreground">Occupancy overview across all properties. Manage rooms and beds inside each property.</p>
+        <p className="text-sm text-muted-foreground">Occupancy overview across all properties. Tap into a property to manage rooms and beds.</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Tile label="Total beds" value={totals.beds} />
-        <Tile label="Occupied" value={totals.occupied} tone="emerald" />
-        <Tile label="Empty" value={totals.empty} />
-        <Tile label="Maintenance" value={totals.maintenance} tone="amber" />
-        <Tile label="Occupancy" value={`${overallPct}%`} tone="primary" />
+        <Tile label="Total beds" value={loading ? "…" : totals.beds} />
+        <Tile label="Occupied" value={loading ? "…" : totals.occupied} tone="emerald" />
+        <Tile label="Empty" value={loading ? "…" : totals.empty} />
+        <Tile label="Maintenance" value={loading ? "…" : totals.maintenance} tone="amber" />
+        <Tile label="Occupancy" value={loading ? "…" : `${overallPct}%`} tone="primary" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {loading && <div className="col-span-full text-sm text-muted-foreground text-center py-10">Loading…</div>}
+        {loading && Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="glass rounded-xl p-4 space-y-3">
+            <Skeleton className="h-9 w-3/4" />
+            <Skeleton className="h-2 w-full" />
+            <div className="grid grid-cols-4 gap-2">
+              {Array.from({ length: 4 }).map((_, j) => <Skeleton key={j} className="h-10" />)}
+            </div>
+          </div>
+        ))}
         {!loading && properties.length === 0 && (
-          <div className="col-span-full text-sm text-muted-foreground text-center py-10">No properties yet. <Link href="/properties" className="text-primary underline">Add one</Link>.</div>
+          <div className="col-span-full">
+            <EmptyState
+              icon={Building2}
+              title="No properties yet"
+              hint="Create your first property to start tracking rooms and beds."
+            />
+          </div>
         )}
-        {properties.map((p) => {
+        {!loading && properties.map((p) => {
           const s = summary[p.id];
-          const pct = s?.beds.occupancy_percent ?? 0;
+          const pct = n(s?.beds?.occupancy_percent);
+          const total = n(s?.beds?.total);
           return (
             <Link key={p.id} href={`/properties/${p.id}`} className="glass rounded-xl p-4 hover:bg-accent/30 transition-colors block">
               <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="h-9 w-9 rounded-lg bg-primary/10 grid place-items-center">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="h-9 w-9 rounded-lg bg-primary/10 grid place-items-center shrink-0">
                     <Building2 className="h-4 w-4 text-primary" />
                   </div>
-                  <div>
-                    <div className="font-medium">{p.name}</div>
-                    <div className="text-xs text-muted-foreground font-mono">{p.code}</div>
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{p.name}</div>
+                    <div className="text-xs text-muted-foreground font-mono truncate">{p.code}</div>
                   </div>
                 </div>
-                <BedDouble className="h-4 w-4 text-muted-foreground" />
+                <BedDouble className="h-4 w-4 text-muted-foreground shrink-0" />
               </div>
 
-              {s ? (
+              {total > 0 ? (
                 <>
                   <div className="mt-3 flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Occupancy</span>
                     <span className="font-semibold">{pct}%</span>
                   </div>
                   <div className="h-2 rounded-full bg-muted overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-primary to-emerald-500" style={{ width: `${pct}%` }} />
+                    <div className="h-full bg-gradient-to-r from-primary to-emerald-500" style={{ width: `${Math.min(pct, 100)}%` }} />
                   </div>
                   <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
-                    <Mini label="Beds" value={s.beds.total} />
-                    <Mini label="Occ" value={s.beds.occupied} />
-                    <Mini label="Empty" value={s.beds.empty} />
-                    <Mini label="Maint" value={s.beds.maintenance} />
+                    <Mini label="Beds" value={total} />
+                    <Mini label="Occ" value={n(s?.beds?.occupied)} />
+                    <Mini label="Empty" value={n(s?.beds?.empty)} />
+                    <Mini label="Maint" value={n(s?.beds?.maintenance)} />
                   </div>
                 </>
               ) : (
-                <div className="mt-3 text-xs text-muted-foreground">No rooms/beds yet.</div>
+                <div className="mt-3 text-xs text-muted-foreground">No rooms or beds yet. Open the property to add some.</div>
               )}
             </Link>
           );

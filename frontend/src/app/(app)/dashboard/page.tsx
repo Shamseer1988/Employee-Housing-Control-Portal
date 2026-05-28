@@ -263,16 +263,19 @@ function Card({
     tone === "amber" ? "text-amber-600" :
     tone === "rose" ? "text-rose-600" :
     tone === "sky" ? "text-sky-600" : "";
-  const Wrapper: React.ElementType = href ? Link : "div";
-  return (
-    <Wrapper {...(href ? { href } : {})} className="glass rounded-xl p-4 relative overflow-hidden block hover:bg-accent/20 transition-colors">
-      <div className={`absolute -top-10 -right-10 h-32 w-32 rounded-full bg-gradient-to-br ${accent} opacity-20 blur-2xl`} />
+  const className = "glass rounded-xl p-4 relative overflow-hidden block transition-colors " + (href ? "hover:bg-accent/30 hover:-translate-y-0.5 cursor-pointer" : "");
+  const inner = (
+    <>
+      <div className={`absolute -top-10 -right-10 h-32 w-32 rounded-full bg-gradient-to-br ${accent} opacity-20 blur-2xl pointer-events-none`} />
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">{label}</span>
         <Icon className="h-4 w-4 text-muted-foreground" />
       </div>
       <div className={"mt-2 text-2xl font-semibold " + toneCls}>{value}</div>
       {sub && <div className="mt-1 text-xs text-muted-foreground">{sub}</div>}
-    </Wrapper>
+    </>
   );
+  if (href) return <Link href={href} className={className}>{inner}</Link>;
+  return <div className={className}>{inner}</div>;
 }
+

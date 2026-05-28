@@ -147,14 +147,28 @@ function ReportPageInner({ params }: { params: Promise<{ slug: string }> }) {
 
   useEffect(() => {
     setFilters(loadSavedFilters(slug));
-    api.get("/reports").then((r) => {
-      const meta = (r.data.data as ReportInfo[]).find((x) => x.slug === slug);
-      setInfo(meta ?? null);
-    });
+    api.get("/reports")
+      .then((r) => {
+        const list = Array.isArray(r.data?.data) ? (r.data.data as ReportInfo[]) : [];
+        setInfo(list.find((x) => x.slug === slug) ?? null);
+      })
+      .catch(() => setInfo(null));
     const need = new Set(filterFields.map((f) => f.type));
-    if (need.has("property")) api.get("/properties").then((r) => setProperties(r.data.data));
-    if (need.has("employee")) api.get("/employees").then((r) => setEmployees(r.data.data));
-    if (need.has("division")) api.get("/divisions").then((r) => setDivisions(r.data.data));
+    if (need.has("property")) {
+      api.get("/properties")
+        .then((r) => setProperties(Array.isArray(r.data?.data) ? r.data.data : []))
+        .catch(() => setProperties([]));
+    }
+    if (need.has("employee")) {
+      api.get("/employees")
+        .then((r) => setEmployees(Array.isArray(r.data?.data) ? r.data.data : []))
+        .catch(() => setEmployees([]));
+    }
+    if (need.has("division")) {
+      api.get("/divisions")
+        .then((r) => setDivisions(Array.isArray(r.data?.data) ? r.data.data : []))
+        .catch(() => setDivisions([]));
+    }
   }, [slug]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = async () => {
@@ -184,20 +198,30 @@ function ReportPageInner({ params }: { params: Promise<{ slug: string }> }) {
     URL.revokeObjectURL(url);
   };
 
+  // Reset sorting / visibility on slug change so we never carry state into
+  // a report with a totally different column set.
+  useEffect(() => {
+    setSorting([]);
+    setVisibility({});
+  }, [slug]);
+
   const columns = useMemo<ColumnDef<Row>[]>(() => {
     if (!payload || !Array.isArray(payload.columns)) return [];
-    // Use accessorFn (not accessorKey) so keys with dots, special chars,
-    // or unexpected shapes never confuse TanStack's path resolver.
     return payload.columns.map((c) => ({
       id: c.key,
-      accessorFn: (row: Row) => row?.[c.key],
+      accessorFn: (row: Row) => (row && typeof row === "object" ? row[c.key] : undefined),
       header: () => c.label,
       cell: (ctx) => renderCellValue(ctx.getValue()),
     }));
   }, [payload]);
 
+  const data = useMemo<Row[]>(() => {
+    if (!payload || !Array.isArray(payload.rows)) return [];
+    return payload.rows.filter((r): r is Row => r !== null && typeof r === "object");
+  }, [payload]);
+
   const table = useReactTable({
-    data: payload?.rows ?? [],
+    data,
     columns,
     state: { sorting, columnVisibility: visibility },
     onSortingChange: setSorting,

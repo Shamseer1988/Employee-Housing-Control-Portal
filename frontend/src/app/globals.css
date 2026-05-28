@@ -103,6 +103,18 @@
     @apply animate-pulse bg-muted rounded;
   }
 
+  /* Mobile-friendly tables: enable horizontal scroll inside cards
+     rather than stretching the page layout. */
+  .glass table {
+    min-width: 480px;
+  }
+  @media (max-width: 640px) {
+    .glass {
+      padding: 0.75rem !important;
+    }
+    main h1 { font-size: 1.5rem !important; }
+  }
+
   /* Accessibility: keep focus rings visible everywhere. */
   :focus-visible {
     outline: 2px solid hsl(var(--ring));

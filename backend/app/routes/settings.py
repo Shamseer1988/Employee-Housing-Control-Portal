@@ -1,12 +1,18 @@
-from flask import Blueprint, request
+import os
+
+from flask import Blueprint, current_app, request, send_file
 
 from ..extensions import db
 from ..models import SystemSetting
+from ..services import attachments as attachments_service
 from ..services import audit, settings as settings_service
 from ..utils.auth import require_permission, current_user
 from ..utils.responses import success_response, error_response
 
 settings_bp = Blueprint("settings", __name__)
+
+LOGO_ENTITY_TYPE = "company_logo"
+LOGO_ENTITY_ID = "current"
 
 
 def _mask_row(row: SystemSetting) -> dict:
@@ -97,3 +103,95 @@ def update_setting(key: str):
     )
     db.session.commit()
     return success_response(data=_mask_row(row), message="Setting updated")
+
+
+# ---------- Company logo upload ----------
+
+from ..models import Attachment  # noqa: E402  (kept here to avoid circular import at module load)
+
+
+def _logo_attachment():
+    return (
+        Attachment.query
+        .filter_by(entity_type=LOGO_ENTITY_TYPE, entity_id=LOGO_ENTITY_ID)
+        .order_by(Attachment.id.desc())
+        .first()
+    )
+
+
+@settings_bp.post("/company-logo")
+@require_permission("settings.manage")
+def upload_company_logo():
+    """Upload a new company logo. Replaces any previous one.
+
+    Also updates the `company.logo_url` setting to point at the public
+    download endpoint so the topbar and login screen pick it up
+    automatically.
+    """
+    if "file" not in request.files:
+        return error_response("file is required", 400)
+    file = request.files["file"]
+    if not file.filename:
+        return error_response("file is required", 400)
+    if not file.mimetype or not file.mimetype.startswith("image/"):
+        return error_response("Logo must be an image (png / jpg / webp / svg)", 400)
+
+    actor = current_user()
+
+    # Replace any existing logo
+    existing = _logo_attachment()
+    if existing is not None:
+        try:
+            attachments_service.delete_file(existing)
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        att = attachments_service.store_file(
+            file=file, entity_type=LOGO_ENTITY_TYPE, entity_id=LOGO_ENTITY_ID,
+            category="logo", actor_id=actor.id,
+        )
+    except ValueError as exc:
+        return error_response(str(exc), 400)
+
+    # Update the public-facing URL so the topbar / login render the logo
+    settings_service.set_value(
+        "company.logo_url", "/api/v1/settings/company-logo", actor_id=actor.id,
+    )
+
+    audit.record(
+        user=actor, action="upload", module="settings",
+        entity_type=LOGO_ENTITY_TYPE, entity_id=att.id,
+        new_value={"size": att.size_bytes, "mime": att.mime_type},
+    )
+    db.session.commit()
+    return success_response(
+        data={"url": "/api/v1/settings/company-logo", "filename": att.original_name},
+        message="Logo updated",
+    )
+
+
+@settings_bp.delete("/company-logo")
+@require_permission("settings.manage")
+def delete_company_logo():
+    actor = current_user()
+    existing = _logo_attachment()
+    if existing is not None:
+        attachments_service.delete_file(existing)
+    settings_service.set_value("company.logo_url", "", actor_id=actor.id)
+    audit.record(user=actor, action="delete", module="settings",
+                 entity_type=LOGO_ENTITY_TYPE, entity_id="logo")
+    db.session.commit()
+    return success_response(message="Logo removed")
+
+
+@settings_bp.get("/company-logo")
+def serve_company_logo():
+    """Public endpoint — used by the unauthenticated login page header."""
+    att = _logo_attachment()
+    if att is None:
+        return error_response("No logo uploaded", 404)
+    path = attachments_service.absolute_path(att)
+    if not os.path.exists(path):
+        return error_response("Logo file missing", 404)
+    return send_file(path, mimetype=att.mime_type or "application/octet-stream")

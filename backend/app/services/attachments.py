@@ -10,7 +10,7 @@ from ..extensions import db
 from ..models import Attachment
 
 ALLOWED_EXTENSIONS = {
-    "pdf", "png", "jpg", "jpeg", "gif", "webp",
+    "pdf", "png", "jpg", "jpeg", "gif", "webp", "svg",
     "doc", "docx", "xls", "xlsx", "csv", "txt",
 }
 
