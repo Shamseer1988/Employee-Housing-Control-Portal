@@ -72,6 +72,20 @@ def _seed_super_user(role_index: dict[str, Role]) -> User:
 
 
 def register_commands(app: Flask) -> None:
+    @app.cli.command("init-db")
+    def init_db():
+        """Create all tables from the SQLAlchemy models.
+
+        Use this for fresh deployments (Docker quick-start, CI tests) where
+        no Alembic migration history exists. The command is idempotent: if
+        a table is already present, SQLAlchemy leaves it alone. After
+        running, switch to `flask db upgrade` for subsequent schema changes
+        once you've initialised migrations.
+        """
+        click.echo("Creating any missing tables from models...")
+        db.create_all()
+        click.echo("Done. Run `flask --app wsgi seed` next.")
+
     @app.cli.command("seed")
     def seed():
         """Seed permissions, roles, and the default super user."""
