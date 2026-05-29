@@ -2,53 +2,72 @@
 
 The Celery app is instantiated at import time so @celery.task decorators
 on the per-domain modules in app/tasks/ have something to attach to.
-init_celery(app) wires it to a Flask app: broker URL, result backend,
-beat schedule, and a Task base class that opens a Flask app context for
-each run so tasks can use SQLAlchemy / current_app like regular views.
+Broker + beat schedule are configured AT IMPORT TIME from REDIS_URL so
+the standalone `celery -A app.celery_app.celery worker` entrypoint
+(which never runs create_app) still talks to the right broker.
+
+init_celery(app) layers on top: attaches a Flask app context wrapper
+around each task so SQLAlchemy + current_app work, and flips the
+task_always_eager flag in tests.
 
 Tests set CELERY_TASK_ALWAYS_EAGER=True so task.delay() runs inline
 without needing a real broker."""
+import os
+
 from celery import Celery
 from celery.schedules import crontab
 
 
-# Created without a broker so importing this module doesn't require
-# Redis. init_celery() supplies broker/backend at app boot.
-celery = Celery("pug_accommodation")
+# Read REDIS_URL at module load — the worker / beat entrypoints
+# `celery -A app.celery_app.celery worker` don't go through create_app,
+# so init_celery() never runs in those processes. Without this default,
+# Celery falls back to its amqp://guest@localhost which doesn't exist
+# in our stack (we use Redis).
+_REDIS_URL = os.getenv("REDIS_URL") or "memory://"
+_RESULT_BACKEND = _REDIS_URL if _REDIS_URL != "memory://" else "cache+memory://"
+
+celery = Celery(
+    "pug_accommodation",
+    broker=_REDIS_URL,
+    backend=_RESULT_BACKEND,
+)
+
+celery.conf.update(
+    task_serializer="json",
+    result_serializer="json",
+    accept_content=["json"],
+    timezone="UTC",
+    enable_utc=True,
+    broker_connection_retry_on_startup=True,
+    # Beat schedule for the recurring sweeps. Times are UTC.
+    beat_schedule={
+        "daily-expiry-sweep": {
+            "task": "app.tasks.expiry.daily_expiry_sweep",
+            "schedule": crontab(hour=2, minute=0),
+        },
+        "daily-reminder-recompute": {
+            "task": "app.tasks.reminders.recompute_reminder_summary",
+            "schedule": crontab(hour=2, minute=15),
+        },
+    },
+)
 
 
 def init_celery(app) -> Celery:
     """Bind the Celery instance to a Flask app.
 
-    Idempotent: calling twice with the same app re-applies the config
-    (used in test_jobs which spins up fresh apps per test)."""
-    redis_url = app.config.get("REDIS_URL") or "memory://"
-
+    Called from create_app() — the worker / beat processes don't run
+    this, but they don't need the Flask context wrapper either (they
+    set it up themselves via the @celery.task decorator's default base
+    class). What this DOES add: the request-cycle Flask app context so
+    tasks running inside the gunicorn process (via .apply()) can use
+    SQLAlchemy.
+    """
     celery.conf.update(
-        broker_url=redis_url,
-        result_backend=redis_url if redis_url != "memory://" else "cache+memory://",
-        task_serializer="json",
-        result_serializer="json",
-        accept_content=["json"],
-        timezone="UTC",
-        enable_utc=True,
         task_always_eager=app.config.get("CELERY_TASK_ALWAYS_EAGER", False),
         task_eager_propagates=True,
-        # Beat schedule for the recurring sweeps. Times are UTC.
-        beat_schedule={
-            "daily-expiry-sweep": {
-                "task": "app.tasks.expiry.daily_expiry_sweep",
-                "schedule": crontab(hour=2, minute=0),
-            },
-            "daily-reminder-recompute": {
-                "task": "app.tasks.reminders.recompute_reminder_summary",
-                "schedule": crontab(hour=2, minute=15),
-            },
-        },
     )
 
-    # Run each task inside a Flask app context so tasks can use
-    # SQLAlchemy + current_app exactly like a request handler.
     flask_app = app
 
     class ContextTask(celery.Task):
@@ -61,7 +80,6 @@ def init_celery(app) -> Celery:
     celery.Task = ContextTask
 
     # Import task modules so their @celery.task decorators register.
-    # Local import to avoid a cycle (app.tasks.* imports celery_app).
     from . import tasks  # noqa: F401
 
     app.extensions["celery"] = celery

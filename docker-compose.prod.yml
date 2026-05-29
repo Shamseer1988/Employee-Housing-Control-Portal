@@ -1,0 +1,151 @@
+name: pug-accommodation-prod
+
+# =============================================================================
+# PRODUCTION compose.
+#
+# Cloudflare → nginx (TLS, edge allowlist) → backend / frontend / Postgres.
+# Requires:
+#   * .env with real SECRET_KEY / JWT_SECRET_KEY / POSTGRES_PASSWORD /
+#     SUPERUSER_PASSWORD / CORS_ORIGINS (no '*') / REDIS_URL set
+#     (see .env.example)
+#   * deploy/ssl/origin.pem + deploy/ssl/origin.key from the Cloudflare
+#     dashboard (see deploy/ssl/README.txt and DEPLOY.md)
+#
+# Launch:
+#     docker compose -f docker-compose.prod.yml up -d --build
+# =============================================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
+      POSTGRES_USER: ${POSTGRES_USER:-pug}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - pug_pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    # No host port mapping — Postgres only reachable inside the
+    # compose network.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pug} -d ${POSTGRES_DB:-pug_accommodation}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Production mode triggers ProductionConfig.validate() —
+      # rejects dev secrets and CORS '*' at boot.
+      FLASK_ENV: production
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS (no '*' in production)}
+      UPLOAD_FOLDER: /data/uploads
+      SUPERUSER_USERNAME: ${SUPERUSER_USERNAME:-admin}
+      SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-admin@pugroup.local}
+      SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD:?set SUPERUSER_PASSWORD}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-}
+    volumes:
+      - pug_uploads:/data/uploads
+    command: >
+      sh -c "flask --app wsgi init-db &&
+             flask --app wsgi migrate-all &&
+             flask --app wsgi seed &&
+             gunicorn -c gunicorn.conf.py wsgi:app"
+
+  worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
+      UPLOAD_FOLDER: /data/uploads
+    volumes:
+      - pug_uploads:/data/uploads
+    command: ["celery", "-A", "celery_worker.celery", "worker", "--loglevel=info"]
+
+  beat:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
+    command: ["celery", "-A", "celery_worker.celery", "beat", "--loglevel=info"]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: production
+
+  nginx:
+    build:
+      context: ./deploy
+      dockerfile: Dockerfile.nginx
+      args:
+        NGINX_CONF: nginx.conf
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      # Cloudflare Origin Certificate. Read-only mount.
+      # See deploy/ssl/README.txt + DEPLOY.md.
+      - ./deploy/ssl:/etc/nginx/ssl:ro
+
+volumes:
+  pug_pgdata:
+  pug_uploads:

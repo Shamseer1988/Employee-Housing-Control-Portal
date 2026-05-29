@@ -1,12 +1,19 @@
 FROM nginx:1.27-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Which nginx config to bake in. Dev passes NGINX_CONF=nginx.dev.conf
+# (plain HTTP, no TLS); prod uses nginx.conf (TLS + Cloudflare allowlist).
+# Default keeps backward compatibility for anyone building without the arg.
+ARG NGINX_CONF=nginx.conf
+COPY ${NGINX_CONF} /etc/nginx/conf.d/default.conf
+
 # We deliberately do NOT run `nginx -t` here: the `backend` / `frontend`
 # upstream names only resolve at runtime when Docker Compose puts every
 # service on the same network. Nginx will fail fast on startup if the
 # config is invalid, which is what we want.
 EXPOSE 80 443
-# Probe over 127.0.0.1 (loopback) so we don't get caught by the Cloudflare
-# allowlist that 443 enforces. /health proxies to backend.
+# Probe over 127.0.0.1 (loopback) so we don't get caught by the prod
+# Cloudflare allowlist. Falls through HTTPS first then plain HTTP so
+# both compose flavours work without two Dockerfiles.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD wget -qO- --no-check-certificate https://127.0.0.1/health >/dev/null 2>&1 \
    || wget -qO- http://127.0.0.1/health >/dev/null 2>&1 \

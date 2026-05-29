@@ -178,6 +178,47 @@ def register_commands(app: Flask) -> None:
                 click.echo("  → job_runs already present")
         click.echo("Done.")
 
+    @app.cli.command("migrate-all")
+    def migrate_all():
+        """Run every migrate-phaseN command in order, idempotently.
+
+        Safe to invoke on every boot — each phase command is a no-op
+        when its schema delta is already applied. Fresh installs see
+        every check pass; upgraded installs catch up to head.
+        """
+        click.echo("Running all phase migrations idempotently...")
+        bind = db.engine
+        from sqlalchemy import inspect, text
+        with bind.begin() as conn:
+            insp = inspect(bind)
+
+            # --- Phase 1: users.token_version + jwt_blocklist
+            if insp.has_table("users"):
+                user_cols = {c["name"] for c in insp.get_columns("users")}
+                if "token_version" not in user_cols:
+                    conn.execute(text(
+                        "ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"
+                    ))
+                    click.echo("  + users.token_version")
+            if not insp.has_table("jwt_blocklist"):
+                from .models import JWTBlocklist
+                JWTBlocklist.__table__.create(bind=conn)
+                click.echo("  + jwt_blocklist")
+
+            # --- Phase 5: job_runs
+            if not insp.has_table("job_runs"):
+                from .models import JobRun
+                JobRun.__table__.create(bind=conn)
+                click.echo("  + job_runs")
+
+            # --- Phase 8: notifications
+            if not insp.has_table("notifications"):
+                from .models import Notification
+                Notification.__table__.create(bind=conn)
+                click.echo("  + notifications")
+
+        click.echo("Done.")
+
     @app.cli.command("migrate-phase1")
     def migrate_phase1():
         """One-shot schema upgrade for the Phase 1 cookie-auth release.

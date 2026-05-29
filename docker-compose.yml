@@ -1,5 +1,15 @@
 name: pug-accommodation
 
+# =============================================================================
+# LOCAL DEVELOPMENT compose.
+#
+# Plain HTTP on port 80, no TLS, no Cloudflare allowlist. Boots clean on
+# any laptop with `docker compose up -d`.
+#
+# For production (Cloudflare Origin Cert + nginx TLS + edge allowlist) use:
+#     docker compose -f docker-compose.prod.yml up -d --build
+# =============================================================================
+
 services:
   db:
     image: postgres:16-alpine
@@ -7,19 +17,20 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
       POSTGRES_USER: ${POSTGRES_USER:-pug}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug-local-pass}
     volumes:
       - pug_pgdata:/var/lib/postgresql/data
       - ./backups:/backups
+    ports:
+      # Exposed locally for psql / pgAdmin during development. Comment
+      # out if you don't want Postgres on the host.
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pug} -d ${POSTGRES_DB:-pug_accommodation}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Shared Redis: rate-limit store now (Phase 2), Celery broker + SSE
-  # fan-out + notification unread cache later (Phases 5, 6, 8). No
-  # persistence — none of those datasets need to survive a restart.
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -40,54 +51,34 @@ services:
       redis:
         condition: service_healthy
     environment:
-      FLASK_ENV: production
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
-      # Production must list explicit origins — ProductionConfig.validate()
-      # rejects "*" at boot. Same-origin via nginx doesn't trigger CORS
-      # anyway, so for the typical single-host deployment you can set
-      # this to your actual hostname (e.g. https://housing.example.com).
-      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS (no '*' in production)}
+      # development mode: skips the prod boot guard (dev secrets OK,
+      # CORS '*' OK, /docs available at /docs).
+      FLASK_ENV: development
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug-local-pass}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-padded-to-32-chars}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-padded-to-32-chars}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
       UPLOAD_FOLDER: /data/uploads
       SUPERUSER_USERNAME: ${SUPERUSER_USERNAME:-admin}
       SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-admin@pugroup.local}
-      SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD:?set SUPERUSER_PASSWORD}
-      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
+      SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD:-ChangeMe123!}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      ENABLE_API_DOCS: "1"
     volumes:
       - pug_uploads:/data/uploads
-    # First boot: no migrations directory yet → init schema from models.
-    # Subsequent boots / production: use Alembic upgrade.
-    # Seed is idempotent and runs every boot.
+    ports:
+      # Exposed so you can hit the API directly during dev without nginx.
+      - "${BACKEND_PORT:-5000}:5000"
+    # Boot sequence: ensure schema is current, seed (idempotent), then serve.
+    # `migrate-all` adds any missing tables/columns from older Phase 1-8
+    # deltas without disturbing the rest of the data.
     command: >
-      sh -c "if [ -d migrations ] && [ -d migrations/versions ]; then
-               flask --app wsgi db upgrade;
-             else
-               flask --app wsgi init-db;
-             fi &&
+      sh -c "flask --app wsgi init-db &&
+             flask --app wsgi migrate-all &&
              flask --app wsgi seed &&
              gunicorn -c gunicorn.conf.py wsgi:app"
 
-  frontend:
-    build:
-      context: ./frontend
-      # No NEXT_PUBLIC_API_URL build arg: the bundle uses RELATIVE URLs
-      # so the app works on whatever host nginx is reached at — localhost,
-      # LAN IP, Tailscale name, public domain — without rebuilding.
-      # Override only if the frontend is served from a different origin
-      # than the API (rare).
-      args:
-        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-}
-    restart: unless-stopped
-    depends_on:
-      - backend
-    environment:
-      NODE_ENV: production
-
-  # Celery worker (Phase 5). Same image as backend, different command.
-  # Picks up jobs enqueued via task.delay() (async bulk imports etc.)
-  # and runs the daily sweeps fired by `beat`.
   worker:
     build:
       context: ./backend
@@ -98,19 +89,20 @@ services:
       redis:
         condition: service_healthy
     environment:
-      FLASK_ENV: production
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
-      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
+      FLASK_ENV: development
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug-local-pass}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-padded-to-32-chars}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-padded-to-32-chars}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
       UPLOAD_FOLDER: /data/uploads
     volumes:
       - pug_uploads:/data/uploads
-    command: ["celery", "-A", "app.celery_app.celery", "worker", "--loglevel=info"]
+    # celery_worker.py imports app.tasks so all @celery.task functions
+    # register against the worker. Without that import path, the worker
+    # boots with zero tasks.
+    command: ["celery", "-A", "celery_worker.celery", "worker", "--loglevel=info"]
 
-  # Celery beat scheduler — single process that fires recurring jobs
-  # on the schedule defined in app/celery_app.py.
   beat:
     build:
       context: ./backend
@@ -121,30 +113,42 @@ services:
       redis:
         condition: service_healthy
     environment:
-      FLASK_ENV: production
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
-      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
-    command: ["celery", "-A", "app.celery_app.celery", "beat", "--loglevel=info"]
+      FLASK_ENV: development
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug-local-pass}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-padded-to-32-chars}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-padded-to-32-chars}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    command: ["celery", "-A", "celery_worker.celery", "beat", "--loglevel=info"]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Relative API URL — bundle calls /api/* on whatever host
+        # nginx is reachable at.
+        NEXT_PUBLIC_API_URL: ""
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: production
+    ports:
+      # Exposed for direct dev hits if you want to bypass nginx.
+      - "${FRONTEND_PORT:-3000}:3000"
 
   nginx:
     build:
       context: ./deploy
       dockerfile: Dockerfile.nginx
+      args:
+        NGINX_CONF: nginx.dev.conf
     restart: unless-stopped
     depends_on:
       - backend
       - frontend
     ports:
       - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
-    volumes:
-      # Cloudflare Origin Certificate (origin.pem + origin.key, 0600 on
-      # the key). See deploy/ssl/README.txt. Read-only mount so a
-      # compromised container can't tamper with the cert material.
-      - ./deploy/ssl:/etc/nginx/ssl:ro
 
 volumes:
   pug_pgdata:

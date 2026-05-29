@@ -124,8 +124,8 @@ ls -l deploy/ssl/
 ## 5. Launch
 
 ```bash
-docker compose up -d --build
-docker compose ps
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml ps
 ```
 
 First boot will run `flask init-db` (creates every table from models)
@@ -164,7 +164,7 @@ loopback) — open the browser to https://housing.example.com from any
 external network, then on the host:
 
 ```bash
-docker compose logs backend --tail 20 | grep "request"
+docker compose -f docker-compose.prod.yml logs backend --tail 20 | grep "request"
 # Look for the structlog JSON access line; the `remote_addr` field
 # should be your external IP, not 172.x or 127.0.0.1.
 ```
@@ -188,7 +188,7 @@ Edit the two range blocks at the top of `deploy/nginx.conf` (both
 `set_real_ip_from` and `geo $cf_edge`), then:
 
 ```bash
-docker compose up -d --build nginx
+docker compose -f docker-compose.prod.yml up -d --build nginx
 ```
 
 ---
@@ -233,12 +233,12 @@ Outside-the-repo actions an operator MUST take before go-live:
       `JWT_SECRET_KEY`, `SUPERUSER_PASSWORD`, `PUBLIC_BASE_URL`,
       `CORS_ORIGINS`, `REDIS_URL`. No dev defaults (boot guard rejects
       them).
-- [ ] `docker compose up -d --build` ran cleanly; `docker compose ps`
+- [ ] `docker compose -f docker-compose.prod.yml up -d --build` ran cleanly; `docker compose -f docker-compose.prod.yml ps`
       shows db, redis, backend, worker, beat, frontend, nginx all
       healthy.
 - [ ] Three curl verifications above all return the expected output.
 - [ ] Browser visit from an external network confirms the real client
-      IP in `docker compose logs backend`.
+      IP in `docker compose -f docker-compose.prod.yml logs backend`.
 - [ ] (Recommended) Sign up for a Sentry account, set `SENTRY_DSN` +
       `NEXT_PUBLIC_SENTRY_DSN`, redeploy.
 - [ ] (Recommended) Nightly cron for `pg_dump` + the uploads tarball.
