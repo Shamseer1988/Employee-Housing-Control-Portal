@@ -2,6 +2,7 @@
 
 import React from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
+import { reportError } from "@/lib/observability";
 
 type State = { error: Error | null };
 
@@ -21,8 +22,7 @@ export class ErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    // eslint-disable-next-line no-console
-    console.error("[ErrorBoundary]", error, info?.componentStack);
+    reportError(error, { componentStack: info?.componentStack });
   }
 
   reset = () => this.setState({ error: null });

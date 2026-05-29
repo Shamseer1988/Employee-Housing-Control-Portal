@@ -132,6 +132,14 @@ def create_app(config_name: str | None = None) -> APIFlask:
     from .celery_app import init_celery
     init_celery(app)
 
+    # Observability (Phase 6). init_logging plants the request-id hook
+    # before any route registration so every log line emitted by a
+    # handler is bound to its request.
+    from .observability import init_logging, init_sentry, init_metrics
+    init_logging(app)
+    init_sentry(app)
+    init_metrics(app)
+
     register_error_handlers(app)
     register_security_headers(app)
     register_cli(app)

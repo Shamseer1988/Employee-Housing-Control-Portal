@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
+import { reportError } from "@/lib/observability";
 
 /**
  * Top-level Next.js error boundary. Shows the actual error message
@@ -16,8 +17,7 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // eslint-disable-next-line no-console
-    console.error("[GlobalError]", error);
+    reportError(error, { digest: error?.digest });
   }, [error]);
 
   return (

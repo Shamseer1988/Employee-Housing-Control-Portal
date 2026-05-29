@@ -51,6 +51,19 @@ class Config:
     RATELIMIT_HEADERS_ENABLED = True
     RATELIMIT_ENABLED = True
 
+    # --- Phase 6: observability -----------------------------------------
+    # Sentry DSN — when unset, init_sentry() is a no-op (safe in dev/CI).
+    SENTRY_DSN = os.getenv("SENTRY_DSN") or None
+    # Shared secret a Prometheus scraper must echo as X-Metrics-Token to
+    # read /metrics. Leaving this empty disables the auth check (fine if
+    # the scraper is on a private network and nginx already blocks public
+    # access).
+    METRICS_TOKEN = os.getenv("METRICS_TOKEN") or None
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    # JSON logs default on in production, off elsewhere — dev console
+    # output stays human-readable.
+    LOG_JSON = (os.getenv("LOG_JSON", "").lower() in ("1", "true", "yes"))
+
 
 class DevelopmentConfig(Config):
     DEBUG = True
@@ -78,6 +91,7 @@ class ProductionConfig(Config):
     # Cookies must be sent over HTTPS only and never cross-site in prod.
     JWT_COOKIE_SECURE = True
     JWT_COOKIE_SAMESITE = "Strict"
+    LOG_JSON = True
 
     @classmethod
     def validate(cls, cfg) -> None:
