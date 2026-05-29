@@ -139,6 +139,12 @@ services:
       - frontend
     ports:
       - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      # Cloudflare Origin Certificate (origin.pem + origin.key, 0600 on
+      # the key). See deploy/ssl/README.txt. Read-only mount so a
+      # compromised container can't tamper with the cert material.
+      - ./deploy/ssl:/etc/nginx/ssl:ro
 
 volumes:
   pug_pgdata:

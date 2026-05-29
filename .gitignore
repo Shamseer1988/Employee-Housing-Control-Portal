@@ -42,3 +42,7 @@ backups/*
 .vscode/
 *.swp
 backend/.venv-test/
+
+# Production TLS material — never commit (Phase 11).
+deploy/ssl/*
+!deploy/ssl/README.txt
