@@ -68,6 +68,8 @@ class TestingConfig(Config):
     # The dedicated rate-limit test re-enables it on its own app instance.
     RATELIMIT_ENABLED = False
     RATELIMIT_STORAGE_URI = "memory://"
+    # Celery tasks run inline in tests — no broker needed.
+    CELERY_TASK_ALWAYS_EAGER = True
 
 
 class ProductionConfig(Config):

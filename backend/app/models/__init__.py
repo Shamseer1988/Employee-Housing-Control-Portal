@@ -17,6 +17,7 @@ from .renewal_maintenance import LandlordRenewal, MaintenanceRecord
 from .system_setting import SystemSetting
 from .approval import ApprovalRequest
 from .jwt_blocklist import JWTBlocklist
+from .job_run import JobRun
 
 __all__ = [
     "BaseModel",
@@ -47,4 +48,5 @@ __all__ = [
     "SystemSetting",
     "ApprovalRequest",
     "JWTBlocklist",
+    "JobRun",
 ]

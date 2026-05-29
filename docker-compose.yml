@@ -85,6 +85,50 @@ services:
     environment:
       NODE_ENV: production
 
+  # Celery worker (Phase 5). Same image as backend, different command.
+  # Picks up jobs enqueued via task.delay() (async bulk imports etc.)
+  # and runs the daily sweeps fired by `beat`.
+  worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
+      UPLOAD_FOLDER: /data/uploads
+    volumes:
+      - pug_uploads:/data/uploads
+    command: ["celery", "-A", "app.celery_app.celery", "worker", "--loglevel=info"]
+
+  # Celery beat scheduler — single process that fires recurring jobs
+  # on the schedule defined in app/celery_app.py.
+  beat:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      FLASK_ENV: production
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
+    command: ["celery", "-A", "app.celery_app.celery", "beat", "--loglevel=info"]
+
   nginx:
     build:
       context: ./deploy

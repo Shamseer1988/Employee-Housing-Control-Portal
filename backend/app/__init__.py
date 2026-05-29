@@ -127,6 +127,11 @@ def create_app(config_name: str | None = None) -> APIFlask:
     app.register_blueprint(approvals_bp, url_prefix="/api/v1/approvals")
     app.register_blueprint(settings_bp, url_prefix="/api/v1/settings")
 
+    # Celery (Phase 5). Initialized after blueprints so task imports
+    # see the fully-configured app.
+    from .celery_app import init_celery
+    init_celery(app)
+
     register_error_handlers(app)
     register_security_headers(app)
     register_cli(app)

@@ -18,3 +18,4 @@ redis==5.2.1
 python-magic==0.4.27
 Pillow==11.0.0
 apiflask==2.2.1
+celery==5.4.0

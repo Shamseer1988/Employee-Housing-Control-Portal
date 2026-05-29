@@ -101,6 +101,28 @@ def register_commands(app: Flask) -> None:
         db.create_all()
         click.echo("Done. Run `flask --app wsgi seed` next.")
 
+    @app.cli.command("run-job")
+    @click.argument("name")
+    def run_job(name: str):
+        """Synchronously run a registered Celery task by short name
+        (no broker required). Lets operators verify a task's logic
+        without spinning up a worker. Examples:
+            flask run-job daily_expiry_sweep
+            flask run-job recompute_reminder_summary
+        """
+        from .celery_app import celery
+        # Match either the bare function name or the full dotted task name.
+        candidates = [t for tname, t in celery.tasks.items()
+                      if tname.endswith("." + name) or tname == name]
+        if not candidates:
+            click.echo(f"Unknown task '{name}'. Available:")
+            for tname in sorted(celery.tasks):
+                if tname.startswith("app."):
+                    click.echo(f"  {tname}")
+            raise SystemExit(1)
+        result = candidates[0].apply().get()
+        click.echo(f"ok: {result}")
+
     @app.cli.command("dump-openapi")
     @click.option("--output", "-o", default="-",
                   help="Output file path; '-' (default) prints to stdout.")
@@ -123,6 +145,23 @@ def register_commands(app: Flask) -> None:
             with open(output, "w") as fh:
                 fh.write(payload)
             click.echo(f"wrote {output}")
+
+    @app.cli.command("migrate-phase5")
+    def migrate_phase5():
+        """One-shot schema upgrade for the Phase 5 background-jobs release.
+
+        Creates the job_runs table on existing DBs. Idempotent."""
+        click.echo("Applying Phase 5 schema delta...")
+        bind = db.engine
+        with bind.begin() as conn:
+            from sqlalchemy import inspect
+            if not inspect(bind).has_table("job_runs"):
+                from .models import JobRun
+                JobRun.__table__.create(bind=conn)
+                click.echo("  → job_runs created")
+            else:
+                click.echo("  → job_runs already present")
+        click.echo("Done.")
 
     @app.cli.command("migrate-phase1")
     def migrate_phase1():
