@@ -5,10 +5,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Build deps for psycopg2 + bcrypt
+# Build deps for psycopg2 + bcrypt, plus libmagic1 for python-magic
+# (Phase 3 upload content-sniffing).
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        build-essential libpq-dev curl \
+        build-essential libpq-dev curl libmagic1 \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

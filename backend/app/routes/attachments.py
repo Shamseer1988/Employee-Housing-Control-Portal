@@ -1,9 +1,11 @@
 import os
+from urllib.parse import quote
 from flask import Blueprint, request, send_file, abort
 
 from ..extensions import db
 from ..models import Attachment
 from ..services import audit, attachments as att_service
+from ..services.attachments import DOWNLOAD_CONTENT_TYPE
 from ..utils.auth import require_permission, current_user
 from ..utils.responses import success_response, error_response
 
@@ -73,7 +75,22 @@ def download(att_id: int):
     path = att_service.absolute_path(att)
     if not os.path.exists(path):
         abort(404)
-    return send_file(path, as_attachment=True, download_name=att.original_name)
+    # Force application/octet-stream and an explicit attachment
+    # disposition so a stored text/html / SVG legacy row can never
+    # render inline. X-Content-Type-Options: nosniff is already
+    # applied globally by the Phase 2 after_request hook.
+    resp = send_file(
+        path,
+        mimetype=DOWNLOAD_CONTENT_TYPE,
+        as_attachment=True,
+        download_name=att.original_name,
+    )
+    safe_name = quote(att.original_name)
+    resp.headers["Content-Type"] = DOWNLOAD_CONTENT_TYPE
+    resp.headers["Content-Disposition"] = (
+        f"attachment; filename=\"{safe_name}\"; filename*=UTF-8''{safe_name}"
+    )
+    return resp
 
 
 @attachments_bp.delete("/<int:att_id>")
