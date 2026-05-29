@@ -101,6 +101,35 @@ def register_commands(app: Flask) -> None:
         db.create_all()
         click.echo("Done. Run `flask --app wsgi seed` next.")
 
+    @app.cli.command("migrate-phase1")
+    def migrate_phase1():
+        """One-shot schema upgrade for the Phase 1 cookie-auth release.
+
+        Idempotent. Run once on existing DBs that were created before
+        users.token_version + jwt_blocklist existed. Fresh installs get
+        these via `init-db` automatically and don't need this command."""
+        click.echo("Applying Phase 1 schema delta...")
+        bind = db.engine
+        with bind.begin() as conn:
+            from sqlalchemy import text, inspect
+            insp = inspect(bind)
+            user_cols = {c["name"] for c in insp.get_columns("users")}
+            if "token_version" not in user_cols:
+                conn.execute(text(
+                    "ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"
+                ))
+                click.echo("  → users.token_version added")
+            else:
+                click.echo("  → users.token_version already present")
+            if not insp.has_table("jwt_blocklist"):
+                # Lean on the model's CreateTable so dialect quirks are handled.
+                from .models import JWTBlocklist
+                JWTBlocklist.__table__.create(bind=conn)
+                click.echo("  → jwt_blocklist created")
+            else:
+                click.echo("  → jwt_blocklist already present")
+        click.echo("Done.")
+
     @app.cli.command("seed")
     def seed():
         """Seed permissions, roles, and the default super user."""

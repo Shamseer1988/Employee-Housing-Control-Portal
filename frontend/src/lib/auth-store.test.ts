@@ -41,16 +41,13 @@ describe("auth store", () => {
     expect(useAuth.getState().has("settings.manage")).toBe(false);
   });
 
-  it("setSession stores tokens and user atomically", () => {
-    useAuth.getState().setSession({
-      user: makeUser({ permissions: ["property.view"] }),
-      access_token: "a.b.c",
-      refresh_token: "r.t.k",
-    });
+  it("setUser stores the profile and unlocks permission checks", () => {
+    // Phase 1: tokens live in httpOnly cookies, not the store. The store
+    // only holds the user profile we got back from /auth/login.
+    useAuth.getState().setUser(makeUser({ permissions: ["property.view"] }));
     const s = useAuth.getState();
-    expect(s.accessToken).toBe("a.b.c");
-    expect(s.refreshToken).toBe("r.t.k");
     expect(s.user?.username).toBe("alice");
     expect(s.has("property.view")).toBe(true);
+    expect(s.has("settings.manage")).toBe(false);
   });
 });

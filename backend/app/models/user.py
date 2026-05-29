@@ -31,6 +31,11 @@ class User(BaseModel):
     last_login_at = Column(DateTime, nullable=True)
     mobile = Column(String(32), nullable=True)
     remarks = Column(String(255), nullable=True)
+    # Bumped on change-password (and any future "force logout all" action) to
+    # invalidate every JWT currently in circulation for this user. Tokens
+    # carry the value they were minted with as a "tv" claim; user_lookup
+    # rejects any whose tv doesn't match.
+    token_version = Column(Integer, default=0, nullable=False)
 
     roles = relationship("Role", secondary=user_roles, back_populates="users", lazy="joined")
 

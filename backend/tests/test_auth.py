@@ -1,10 +1,32 @@
-def test_login_success(client):
+def _cookies(client):
+    """Return {name: value} for cookies currently on the test client jar.
+
+    Works with both the dict-style jar shipped in Werkzeug 3 and the
+    older list-style jar."""
+    out = {}
+    jar = client._cookies
+    if hasattr(jar, "values"):
+        items = list(jar.values())
+    else:
+        items = list(jar)
+    for c in items:
+        name = getattr(c, "key", None) or getattr(c, "name", None)
+        out[name] = c.value
+    return out
+
+
+def test_login_success_sets_cookies(client):
     resp = client.post("/api/v1/auth/login", json={"username": "admin", "password": "ChangeMe123!"})
     assert resp.status_code == 200
     data = resp.get_json()["data"]
-    assert "access_token" in data
-    assert "refresh_token" in data
+    # JWTs no longer travel in the body — only the user.
+    assert "access_token" not in data
+    assert "refresh_token" not in data
     assert data["user"]["is_super_user"] is True
+    cookies = _cookies(client)
+    assert "access_token_cookie" in cookies
+    assert "refresh_token_cookie" in cookies
+    assert "csrf_access_token" in cookies  # readable by JS for X-CSRF-TOKEN echo
 
 
 def test_login_bad_password(client):
@@ -17,8 +39,9 @@ def test_me_requires_auth(client):
     assert resp.status_code == 401
 
 
-def test_me_with_token(client, auth_headers):
-    resp = client.get("/api/v1/auth/me", headers=auth_headers)
+def test_me_with_cookie(client, auth_headers):
+    # GET routes need no CSRF echo; the cookie alone authenticates.
+    resp = client.get("/api/v1/auth/me")
     assert resp.status_code == 200
     body = resp.get_json()["data"]
     assert body["username"] == "admin"
@@ -36,8 +59,7 @@ def test_users_list(client, auth_headers):
     assert resp.get_json()["meta"]["count"] >= 1
 
 
-def test_create_and_login_regular_user(client, auth_headers):
-    # Find the HR Executive role
+def test_create_and_login_regular_user(app, client, auth_headers):
     roles = client.get("/api/v1/roles", headers=auth_headers).get_json()["data"]
     hr = next(r for r in roles if r["code"] == "hr_executive")
 
@@ -54,19 +76,19 @@ def test_create_and_login_regular_user(client, auth_headers):
     )
     assert resp.status_code == 201, resp.get_data(as_text=True)
 
-    # New user logs in
-    login = client.post("/api/v1/auth/login", json={"username": "hr1", "password": "Password123"})
+    # Second logical session: fresh client so its cookie jar is clean.
+    hr_client = app.test_client(use_cookies=True)
+    login = hr_client.post("/api/v1/auth/login", json={"username": "hr1", "password": "Password123"})
     assert login.status_code == 200
-    token = login.get_json()["data"]["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
+    csrf = _cookies(hr_client)["csrf_access_token"]
+    hr_headers = {"X-CSRF-TOKEN": csrf}
 
-    # HR Executive has employee.view but NOT user.manage
-    me = client.get("/api/v1/auth/me", headers=headers).get_json()["data"]
+    me = hr_client.get("/api/v1/auth/me").get_json()["data"]
     assert "employee.view" in me["permissions"]
     assert "user.manage" not in me["permissions"]
 
-    forbidden = client.post(
-        "/api/v1/users", headers=headers,
+    forbidden = hr_client.post(
+        "/api/v1/users", headers=hr_headers,
         json={"username": "x", "email": "x@x.com", "full_name": "X", "password": "Password123"},
     )
     assert forbidden.status_code == 403

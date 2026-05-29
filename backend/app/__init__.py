@@ -19,6 +19,7 @@ def create_app(config_name: str | None = None) -> Flask:
     from . import models  # noqa: F401
     migrate.init_app(app, db)
     jwt.init_app(app)
+    _register_jwt_callbacks()
     # CORS: if any allowed origin is "*", broadcast that to flask-cors as a
     # single wildcard (the list form would attempt strict matching against
     # the literal string "*"). Same-origin requests through nginx don't
@@ -111,3 +112,37 @@ def register_error_handlers(app: Flask) -> None:
 def register_cli(app: Flask) -> None:
     from .cli import register_commands
     register_commands(app)
+
+
+def _register_jwt_callbacks() -> None:
+    """JWT lifecycle hooks: per-token-version invalidation + revocation list.
+
+    Idempotent — safe to call once per create_app(). Imports are local so
+    test environments that don't load every blueprint still work."""
+    from .models import User, JWTBlocklist
+
+    @jwt.additional_claims_loader
+    def _claims(identity):
+        user = User.query.get(int(identity)) if identity else None
+        if user is None:
+            return {}
+        return {
+            "username": user.username,
+            "is_super_user": user.is_super_user,
+            "tv": user.token_version,
+        }
+
+    @jwt.user_lookup_loader
+    def _user_lookup(_jwt_header, jwt_data):
+        user = User.query.get(int(jwt_data["sub"]))
+        if user is None or not user.is_active:
+            return None
+        # Token version mismatch == issued before the last change-password
+        # (or other forced invalidation). Treat as revoked.
+        if int(jwt_data.get("tv", 0)) != int(user.token_version or 0):
+            return None
+        return user
+
+    @jwt.token_in_blocklist_loader
+    def _is_revoked(_jwt_header, jwt_data) -> bool:
+        return JWTBlocklist.query.filter_by(jti=jwt_data["jti"]).first() is not None

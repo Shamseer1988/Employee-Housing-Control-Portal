@@ -16,6 +16,7 @@ from .movement import (
 from .renewal_maintenance import LandlordRenewal, MaintenanceRecord
 from .system_setting import SystemSetting
 from .approval import ApprovalRequest
+from .jwt_blocklist import JWTBlocklist
 
 __all__ = [
     "BaseModel",
@@ -45,4 +46,5 @@ __all__ = [
     "MaintenanceRecord",
     "SystemSetting",
     "ApprovalRequest",
+    "JWTBlocklist",
 ]

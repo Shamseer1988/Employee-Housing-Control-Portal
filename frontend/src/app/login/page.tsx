@@ -10,7 +10,7 @@ import { useCompanyName, useCompanyLogo } from "@/lib/public-settings";
 function LoginForm() {
   const router = useRouter();
   const search = useSearchParams();
-  const { setSession, accessToken, hydrated } = useAuth();
+  const { setUser, setBootstrapped, user, hydrated } = useAuth();
   const companyName = useCompanyName();
   const logoUrl = useCompanyLogo();
   const [username, setUsername] = useState("");
@@ -21,10 +21,10 @@ function LoginForm() {
   const next = search.get("next") || "/dashboard";
 
   useEffect(() => {
-    if (hydrated && accessToken) {
+    if (hydrated && user) {
       router.replace(next);
     }
-  }, [hydrated, accessToken, router, next]);
+  }, [hydrated, user, router, next]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +32,10 @@ function LoginForm() {
     setBusy(true);
     try {
       const resp = await api.post("/auth/login", { username, password });
-      setSession(resp.data.data);
+      // Cookies were set by the server. Only the user profile rides in
+      // the body — that's all we keep locally.
+      setUser(resp.data.data.user);
+      setBootstrapped(true);
       router.replace(next);
     } catch (err: unknown) {
       const msg =

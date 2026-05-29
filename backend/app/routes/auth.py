@@ -1,14 +1,33 @@
+"""Cookie-based JWT auth (Phase 1).
+
+Login plants two pairs of cookies via Flask-JWT-Extended:
+  * access_token_cookie / csrf_access_token  (path = /api/v1)
+  * refresh_token_cookie / csrf_refresh_token (path = /api/v1/auth/refresh)
+
+The frontend never sees the JWTs themselves; it reads the csrf_* cookies
+(intentionally not httpOnly) and echoes their value as X-CSRF-TOKEN on
+mutating requests.
+
+Logout revokes both tokens by jti (JWTBlocklist) and unsets the cookies.
+change-password bumps user.token_version, which invalidates every JWT
+currently in circulation for that user via the user_lookup_loader."""
 from datetime import datetime
-from flask import Blueprint, request
+
+from flask import Blueprint, make_response, request
 from flask_jwt_extended import (
     create_access_token,
     create_refresh_token,
     jwt_required,
+    get_jwt,
     get_jwt_identity,
+    set_access_cookies,
+    set_refresh_cookies,
+    unset_jwt_cookies,
+    verify_jwt_in_request,
 )
 
 from ..extensions import db
-from ..models import User
+from ..models import User, JWTBlocklist
 from ..services import audit
 from ..utils.auth import login_required, current_user
 from ..utils.responses import success_response, error_response
@@ -38,14 +57,13 @@ def login():
     audit.record(user=user, action="login", module="auth", entity_type="user", entity_id=user.id)
     db.session.commit()
 
-    claims = {"username": user.username, "is_super_user": user.is_super_user}
-    access = create_access_token(identity=str(user.id), additional_claims=claims)
+    access = create_access_token(identity=str(user.id))
     refresh = create_refresh_token(identity=str(user.id))
 
-    return success_response(
-        data={"access_token": access, "refresh_token": refresh, "user": user.to_dict()},
-        message="Logged in",
-    )
+    resp = make_response(success_response(data={"user": user.to_dict()}, message="Logged in"))
+    set_access_cookies(resp, access)
+    set_refresh_cookies(resp, refresh)
+    return resp
 
 
 @auth_bp.post("/refresh")
@@ -55,18 +73,52 @@ def refresh():
     user = User.query.get(int(identity)) if identity else None
     if user is None or not user.is_active:
         return error_response("User no longer active", 401)
-    claims = {"username": user.username, "is_super_user": user.is_super_user}
-    access = create_access_token(identity=str(user.id), additional_claims=claims)
-    return success_response(data={"access_token": access})
+    access = create_access_token(identity=str(user.id))
+    resp = make_response(success_response(data={"user": user.to_dict()}))
+    set_access_cookies(resp, access)
+    return resp
 
 
 @auth_bp.post("/logout")
-@login_required
 def logout():
-    user = current_user()
-    audit.record(user=user, action="logout", module="auth", entity_type="user", entity_id=user.id)
+    """Revoke whichever tokens the caller presents and unset cookies.
+
+    Not @login_required because we want logout to succeed even if the
+    access token is already expired — the refresh cookie still gets
+    cleared, and the user lands on the login screen cleanly."""
+    user = None
+    for token_type in ("access", "refresh"):
+        try:
+            verify_jwt_in_request(refresh=(token_type == "refresh"), optional=True)
+            claims = get_jwt()
+            if not claims:
+                continue
+            jti = claims.get("jti")
+            if not jti:
+                continue
+            if not JWTBlocklist.query.filter_by(jti=jti).first():
+                db.session.add(JWTBlocklist(
+                    jti=jti,
+                    user_id=int(claims.get("sub")) if claims.get("sub") else None,
+                    token_type=token_type,
+                ))
+            if user is None:
+                ident = claims.get("sub")
+                if ident:
+                    user = User.query.get(int(ident))
+        except Exception:
+            # Token absent / expired / malformed — nothing to revoke for
+            # this slot; still clear the cookie below.
+            continue
+
+    if user is not None:
+        audit.record(user=user, action="logout", module="auth",
+                     entity_type="user", entity_id=user.id)
     db.session.commit()
-    return success_response(message="Logged out")
+
+    resp = make_response(success_response(message="Logged out"))
+    unset_jwt_cookies(resp)
+    return resp
 
 
 @auth_bp.get("/me")
@@ -87,6 +139,11 @@ def change_password():
     if not user.check_password(old_password):
         return error_response("Current password is incorrect", 400)
     user.set_password(new_password)
+    user.token_version = (user.token_version or 0) + 1
     audit.record(user=user, action="change_password", module="auth", entity_type="user", entity_id=user.id)
     db.session.commit()
-    return success_response(message="Password updated")
+    # Existing cookies become invalid the moment token_version bumps. We
+    # also clear them on this response so the current tab has to re-login.
+    resp = make_response(success_response(message="Password updated"))
+    unset_jwt_cookies(resp)
+    return resp
