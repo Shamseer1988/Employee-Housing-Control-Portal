@@ -146,6 +146,21 @@ def register_commands(app: Flask) -> None:
                 fh.write(payload)
             click.echo(f"wrote {output}")
 
+    @app.cli.command("migrate-phase8")
+    def migrate_phase8():
+        """Adds notifications table on existing DBs. Idempotent."""
+        click.echo("Applying Phase 8 schema delta...")
+        bind = db.engine
+        with bind.begin() as conn:
+            from sqlalchemy import inspect
+            if not inspect(bind).has_table("notifications"):
+                from .models import Notification
+                Notification.__table__.create(bind=conn)
+                click.echo("  → notifications created")
+            else:
+                click.echo("  → notifications already present")
+        click.echo("Done.")
+
     @app.cli.command("migrate-phase5")
     def migrate_phase5():
         """One-shot schema upgrade for the Phase 5 background-jobs release.

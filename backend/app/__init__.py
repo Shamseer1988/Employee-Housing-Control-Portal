@@ -98,6 +98,8 @@ def create_app(config_name: str | None = None) -> APIFlask:
     from .routes.maintenance import maintenance_bp
     from .routes.bulk_movements import bulk_bp
     from .routes.search import search_bp
+    from .routes.notifications import notifications_bp
+    from .routes.events import events_bp
     from .routes.dashboard import dashboard_bp
     from .routes.reports import reports_bp
     from .routes.approvals import approvals_bp
@@ -122,6 +124,8 @@ def create_app(config_name: str | None = None) -> APIFlask:
     app.register_blueprint(maintenance_bp, url_prefix="/api/v1")
     app.register_blueprint(bulk_bp, url_prefix="/api/v1")
     app.register_blueprint(search_bp, url_prefix="/api/v1")
+    app.register_blueprint(notifications_bp, url_prefix="/api/v1/notifications")
+    app.register_blueprint(events_bp, url_prefix="/api/v1/events")
     app.register_blueprint(dashboard_bp, url_prefix="/api/v1/dashboard")
     app.register_blueprint(reports_bp, url_prefix="/api/v1/reports")
     app.register_blueprint(approvals_bp, url_prefix="/api/v1/approvals")

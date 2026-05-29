@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   Building2, BedDouble, Users, AlertTriangle, CheckCircle2,
@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { api } from "@/lib/api";
 import { keys } from "@/lib/query-keys";
+import { useEvents } from "@/lib/use-events";
 
 type Summary = {
   properties: { total: number; active: number; maintenance: number; agreements_active: number; floors: number };
@@ -63,6 +64,16 @@ const ACTIVITY_ICON: Record<ActivityRow["type"], typeof BedDouble> = {
 };
 
 export default function DashboardPage() {
+  const qc = useQueryClient();
+
+  // Phase 8a: any occupancy change anywhere in the app (an assignment
+  // posted in another tab, another operator transferring a bed)
+  // invalidates the dashboard panels so they refetch on the next render.
+  useEvents("occupancy", () => {
+    qc.invalidateQueries({ queryKey: ["dashboard"] });
+    qc.invalidateQueries({ queryKey: ["properties"] });
+  });
+
   // One useQuery per panel so a failure on one chart doesn't blank the
   // others. Query keys live in lib/query-keys.ts so mutations elsewhere
   // can invalidate them precisely.

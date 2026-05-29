@@ -18,6 +18,7 @@ from .system_setting import SystemSetting
 from .approval import ApprovalRequest
 from .jwt_blocklist import JWTBlocklist
 from .job_run import JobRun
+from .notification import Notification
 
 __all__ = [
     "BaseModel",
@@ -49,4 +50,5 @@ __all__ = [
     "ApprovalRequest",
     "JWTBlocklist",
     "JobRun",
+    "Notification",
 ]

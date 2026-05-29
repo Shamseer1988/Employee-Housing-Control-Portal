@@ -153,6 +153,19 @@ def _apply_assignment_side_effects(txn: AccommodationAssignment, *, actor_id: in
 
     room.recompute_status()
     db.session.flush()
+    # Phase 8a: notify any SSE subscribers so dashboards / floor-plans
+    # update without a refresh. Best-effort; failures don't roll back.
+    try:
+        from . import events as event_service
+        event_service.publish("occupancy", {
+            "type": "assignment.created",
+            "property_id": txn.property_id,
+            "bed_id": bed.id,
+            "bed_code": bed.bed_code,
+            "employee_id": employee.id,
+        })
+    except Exception:
+        pass
 
 
 def finalize_pending_assignment(txn: AccommodationAssignment, *, actor_id: int) -> AccommodationAssignment:

@@ -104,6 +104,12 @@ export default function PropertyDetail({ params }: { params: Promise<{ id: strin
             <span className={"rounded-full px-3 py-1 text-xs capitalize " + statusBadgeClass(property.status)}>
               {property.status.replace("_", " ")}
             </span>
+            <Link
+              href={`/properties/${property.id}/floor-plan`}
+              className="h-8 inline-flex items-center gap-1 rounded-md border border-border bg-card/60 px-2 text-xs hover:bg-accent"
+            >
+              Floor plan →
+            </Link>
             <Can perm="property.deactivate">
               <button
                 type="button"
