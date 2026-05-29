@@ -1,14 +1,19 @@
 from datetime import datetime
-from flask import Blueprint, request, Response
+from apiflask import APIBlueprint
+from flask import request, Response
 
 from ..extensions import db
 from ..models import Employee, Division, ImportBatch, ImportError as ImportErrorRow
 from ..models.employee import EMPLOYEE_STATUSES, ACCOMMODATION_TYPES, GENDERS
+from ..schemas.common import envelope
+from ..schemas.employee import (
+    EmployeeIn, EmployeeUpdateIn, EmployeeOut, EmployeeListQuery,
+)
 from ..services import audit, codes, employee_import
 from ..utils.auth import require_permission, current_user
 from ..utils.responses import success_response, error_response
 
-employees_bp = Blueprint("employees", __name__)
+employees_bp = APIBlueprint("employees", __name__)
 
 EDITABLE = {
     "full_name", "qid_number", "passport_number", "visa_company",
@@ -43,11 +48,12 @@ def _apply(emp: Employee, payload: dict) -> None:
 
 @employees_bp.get("")
 @require_permission("employee.view")
-def list_employees():
-    q = (request.args.get("q") or "").strip().lower()
-    status = request.args.get("status")
-    division_id = request.args.get("division_id", type=int)
-    accommodation = request.args.get("accommodation")  # "yes" / "no"
+@employees_bp.input(EmployeeListQuery, location="query")
+def list_employees(query_data):
+    q = (query_data.get("q") or "").strip().lower()
+    status = query_data.get("status")
+    division_id = query_data.get("division_id")
+    accommodation = query_data.get("accommodation")
 
     query = Employee.query
     if q:
@@ -82,33 +88,32 @@ def get_employee(emp_id: int):
 
 @employees_bp.post("")
 @require_permission("employee.create")
-def create_employee():
-    payload = request.get_json(silent=True) or {}
-    if not (payload.get("full_name") or "").strip():
-        return error_response("full_name is required", 400)
-    err = _validate(payload)
-    if err:
-        return error_response(err, 400)
-
-    qid = (payload.get("qid_number") or "").strip() or None
-    passport = (payload.get("passport_number") or "").strip() or None
+@employees_bp.input(EmployeeIn)
+def create_employee(json_data):
+    full_name = (json_data.get("full_name") or "").strip()
+    qid = (json_data.get("qid_number") or "").strip() or None
+    passport = (json_data.get("passport_number") or "").strip() or None
     if qid and Employee.query.filter_by(qid_number=qid).first():
         return error_response(f"QID {qid} already exists", 409)
     if passport and Employee.query.filter_by(passport_number=passport).first():
         return error_response(f"Passport {passport} already exists", 409)
+    if json_data.get("division_id") and not Division.query.get(json_data["division_id"]):
+        return error_response("division_id not found", 400)
 
     actor = current_user()
-    code = (payload.get("code") or "").strip() or codes.next_code(Employee, codes.prefix_for("employee"), width=5)
+    code = (json_data.get("code") or "").strip() or codes.next_code(
+        Employee, codes.prefix_for("employee"), width=5,
+    )
     if Employee.query.filter_by(code=code).first():
         return error_response(f"Code {code} already exists", 409)
 
-    emp = Employee(code=code, full_name=payload["full_name"].strip(),
+    emp = Employee(code=code, full_name=full_name,
                    created_by=actor.id, updated_by=actor.id)
     if qid:
         emp.qid_number = qid
     if passport:
         emp.passport_number = passport
-    _apply(emp, payload)
+    _apply(emp, json_data)
     db.session.add(emp)
     db.session.flush()
     audit.record(user=actor, action="create", module="employee",
@@ -119,25 +124,24 @@ def create_employee():
 
 @employees_bp.put("/<int:emp_id>")
 @require_permission("employee.edit")
-def update_employee(emp_id: int):
+@employees_bp.input(EmployeeUpdateIn)
+def update_employee(emp_id: int, json_data):
     emp = Employee.query.get_or_404(emp_id)
-    payload = request.get_json(silent=True) or {}
-    err = _validate(payload)
-    if err:
-        return error_response(err, 400)
+    if json_data.get("division_id") and not Division.query.get(json_data["division_id"]):
+        return error_response("division_id not found", 400)
 
-    if "qid_number" in payload and payload["qid_number"]:
-        new_qid = payload["qid_number"].strip()
+    if json_data.get("qid_number"):
+        new_qid = json_data["qid_number"].strip()
         if new_qid != (emp.qid_number or "") and Employee.query.filter_by(qid_number=new_qid).first():
             return error_response(f"QID {new_qid} already exists", 409)
-    if "passport_number" in payload and payload["passport_number"]:
-        new_pp = payload["passport_number"].strip()
+    if json_data.get("passport_number"):
+        new_pp = json_data["passport_number"].strip()
         if new_pp != (emp.passport_number or "") and Employee.query.filter_by(passport_number=new_pp).first():
             return error_response(f"Passport {new_pp} already exists", 409)
 
     actor = current_user()
     old = emp.to_dict()
-    _apply(emp, payload)
+    _apply(emp, json_data)
     emp.updated_by = actor.id
     audit.record(user=actor, action="update", module="employee",
                  entity_type="employee", entity_id=emp.id,

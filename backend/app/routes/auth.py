@@ -1,4 +1,4 @@
-"""Cookie-based JWT auth (Phase 1).
+"""Cookie-based JWT auth (Phase 1) + apiflask schemas (Phase 4).
 
 Login plants two pairs of cookies via Flask-JWT-Extended:
   * access_token_cookie / csrf_access_token  (path = /api/v1)
@@ -13,7 +13,8 @@ change-password bumps user.token_version, which invalidates every JWT
 currently in circulation for that user via the user_lookup_loader."""
 from datetime import datetime
 
-from flask import Blueprint, make_response, request
+from apiflask import APIBlueprint
+from flask import make_response, request
 from flask_jwt_extended import (
     create_access_token,
     create_refresh_token,
@@ -28,22 +29,24 @@ from flask_jwt_extended import (
 
 from ..extensions import db, limiter
 from ..models import User, JWTBlocklist
+from ..schemas.auth import ChangePasswordIn, LoginIn, LoginOut, UserOut
+from ..schemas.common import envelope
 from ..services import audit
 from ..utils.auth import login_required, current_user
 from ..utils.responses import success_response, error_response
 
-auth_bp = Blueprint("auth", __name__)
+auth_bp = APIBlueprint("auth", __name__)
 
 
 @auth_bp.post("/login")
 @limiter.limit("10 per minute")
-def login():
-    payload = request.get_json(silent=True) or {}
-    identifier = (payload.get("username") or payload.get("email") or "").strip().lower()
-    password = payload.get("password") or ""
+@auth_bp.input(LoginIn)
+def login(json_data):
+    identifier = (json_data.get("username") or json_data.get("email") or "").strip().lower()
+    password = json_data["password"]
 
-    if not identifier or not password:
-        return error_response("username/email and password are required", 400)
+    if not identifier:
+        return error_response("username or email is required", 400)
 
     user = User.query.filter(
         (db.func.lower(User.username) == identifier) | (db.func.lower(User.email) == identifier)
@@ -109,8 +112,6 @@ def logout():
                 if ident:
                     user = User.query.get(int(ident))
         except Exception:
-            # Token absent / expired / malformed — nothing to revoke for
-            # this slot; still clear the cookie below.
             continue
 
     if user is not None:
@@ -131,16 +132,12 @@ def me():
 
 @auth_bp.post("/change-password")
 @login_required
-def change_password():
-    payload = request.get_json(silent=True) or {}
-    old_password = payload.get("old_password") or ""
-    new_password = payload.get("new_password") or ""
-    if len(new_password) < 8:
-        return error_response("New password must be at least 8 characters", 400)
+@auth_bp.input(ChangePasswordIn)
+def change_password(json_data):
     user = current_user()
-    if not user.check_password(old_password):
+    if not user.check_password(json_data["old_password"]):
         return error_response("Current password is incorrect", 400)
-    user.set_password(new_password)
+    user.set_password(json_data["new_password"])
     user.token_version = (user.token_version or 0) + 1
     audit.record(user=user, action="change_password", module="auth", entity_type="user", entity_id=user.id)
     db.session.commit()

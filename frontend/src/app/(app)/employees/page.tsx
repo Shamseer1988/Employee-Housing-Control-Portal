@@ -4,7 +4,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Plus, Pencil, Upload, Download, UserX, ChevronRight, Users as UsersIcon } from "lucide-react";
 import { api } from "@/lib/api";
+import type { components } from "@/lib/api-types";
 import { Can } from "@/components/can";
+
+// Generated from the backend OpenAPI spec (Phase 4). Regenerate with
+// `npm run gen-api-types` after editing the marshmallow schemas.
+type EmployeeIn = components["schemas"]["EmployeeIn"];
+type EmployeeUpdateIn = components["schemas"]["EmployeeUpdateIn"];
 import { Modal, Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
 import { toast, errorMessage } from "@/components/ui/toast";
 import { SkeletonTable } from "@/components/ui/states";
@@ -241,15 +247,19 @@ function EmployeeDialog({ open, editing, divisions, onClose, onSaved }: {
     e.preventDefault();
     setBusy(true);
     try {
-      const payload: Record<string, unknown> = { ...form };
-      delete payload.division;
-      delete payload.current_property;
-      delete payload.current_room;
-      delete payload.current_bed;
+      const cleaned: Record<string, unknown> = { ...form };
+      delete cleaned.division;
+      delete cleaned.current_property;
+      delete cleaned.current_room;
+      delete cleaned.current_bed;
       if (editing) {
+        // Cast through Record so the spread can drop server-only relation
+        // fields without arguing with the strict EmployeeUpdateIn shape.
+        const payload = cleaned as EmployeeUpdateIn;
         const resp = await api.put(`/employees/${editing.id}`, payload);
         toast.success(`Employee ${resp.data?.data?.code ?? editing.code} updated`);
       } else {
+        const payload = cleaned as EmployeeIn;
         const resp = await api.post("/employees", payload);
         toast.success(`Employee ${resp.data?.data?.code ?? ""} created`);
       }

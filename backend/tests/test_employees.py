@@ -63,11 +63,16 @@ def test_employee_crud(client, auth_headers):
 
 
 def test_employee_validation(client, auth_headers):
+    # Phase 4: schema-driven validation returns 422 with field-level
+    # detail surfaced through our envelope's `details` key.
     bad = client.post("/api/v1/employees", headers=auth_headers, json={
         "full_name": "Bad", "gender": "robot",
     })
-    assert bad.status_code == 400
-    assert "gender" in bad.get_json()["message"].lower()
+    assert bad.status_code == 422
+    body = bad.get_json()
+    assert body["success"] is False
+    # error_processor flattens marshmallow's field error map into details.
+    assert "gender" in str(body.get("details", "")).lower()
 
 
 def test_employee_list_filters(client, auth_headers):

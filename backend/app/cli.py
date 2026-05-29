@@ -101,6 +101,29 @@ def register_commands(app: Flask) -> None:
         db.create_all()
         click.echo("Done. Run `flask --app wsgi seed` next.")
 
+    @app.cli.command("dump-openapi")
+    @click.option("--output", "-o", default="-",
+                  help="Output file path; '-' (default) prints to stdout.")
+    def dump_openapi(output: str):
+        """Emit the OpenAPI 3 spec as JSON.
+
+        Used by the frontend codegen script (`npm run gen-api-types`)
+        to drive openapi-typescript without booting a full HTTP server.
+        """
+        import json
+        spec = app.spec
+        # apiflask.app.spec is already a dict in 2.x; older versions
+        # returned a Spec object. Handle both defensively.
+        if hasattr(spec, "to_dict"):
+            spec = spec.to_dict()
+        payload = json.dumps(spec, indent=2, sort_keys=True, default=str)
+        if output == "-":
+            click.echo(payload)
+        else:
+            with open(output, "w") as fh:
+                fh.write(payload)
+            click.echo(f"wrote {output}")
+
     @app.cli.command("migrate-phase1")
     def migrate_phase1():
         """One-shot schema upgrade for the Phase 1 cookie-auth release.

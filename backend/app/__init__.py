@@ -1,4 +1,5 @@
 import os
+from apiflask import APIFlask
 from flask import Flask, jsonify
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -8,15 +9,51 @@ from .extensions import db, migrate, jwt, limiter
 from .utils.responses import error_response
 
 
-def create_app(config_name: str | None = None) -> Flask:
+def _docs_enabled(env: str) -> bool:
+    """OpenAPI docs (Swagger UI + /openapi.json) are on in dev/testing
+    and off in production unless ENABLE_API_DOCS is explicitly truthy.
+    The spec leaks field-level structure to anyone who can hit the URL,
+    so prod stays closed by default."""
+    if env != "production":
+        return True
+    flag = (os.getenv("ENABLE_API_DOCS") or "").lower()
+    return flag in ("1", "true", "yes", "on")
+
+
+def create_app(config_name: str | None = None) -> APIFlask:
     env = config_name or os.getenv("FLASK_ENV", "development")
-    app = Flask(__name__)
+    docs_on = _docs_enabled(env)
+    app = APIFlask(
+        __name__,
+        title="PUG Accommodation Management API",
+        version="1.0.0",
+        docs_path="/docs" if docs_on else None,
+        spec_path="/openapi.json" if docs_on else None,
+    )
+    # apiflask's own request/response tagging is documentation-only —
+    # we still return success_response / error_response from views.
+    app.config["AUTO_TAGS"] = False
     app.config.from_object(config_map.get(env, config_map["default"]))
 
     # Boot-time guardrail: production refuses to start with dev secrets
     # or wildcard CORS. Raises RuntimeError before the app serves traffic.
     if env == "production":
         ProductionConfig.validate(app.config)
+
+    @app.error_processor
+    def _envelope_errors(err):
+        """Funnel apiflask validation / HTTP errors through our
+        existing {success, message, details} envelope so clients never
+        see two different error shapes."""
+        body = error_response(
+            err.message or "Request failed",
+            err.status_code,
+            err.detail or None,
+        )
+        # error_response returns (jsonify, status); apiflask wants
+        # (body, status, headers). Unpack into the right tuple.
+        json_resp, status = body
+        return json_resp, status, err.headers or {}
 
     # ProxyFix so that get_remote_address() (rate-limit key), audit logs,
     # and request.scheme honour exactly one upstream proxy (nginx). If a

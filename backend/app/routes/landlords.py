@@ -1,14 +1,17 @@
 from datetime import date, datetime
 
-from flask import Blueprint, request
+from apiflask import APIBlueprint
+from flask import request
 
 from ..extensions import db
 from ..models import Landlord
+from ..schemas.common import envelope
+from ..schemas.landlord import LandlordIn, LandlordUpdateIn, LandlordOut
 from ..services import audit, codes
 from ..utils.auth import require_permission, current_user
 from ..utils.responses import success_response, error_response
 
-landlords_bp = Blueprint("landlords", __name__)
+landlords_bp = APIBlueprint("landlords", __name__)
 
 EDITABLE_FIELDS = {
     "name", "qid_cr_number", "mobile", "email", "address", "contact_person",
@@ -72,20 +75,19 @@ def get_landlord(landlord_id: int):
 
 @landlords_bp.post("")
 @require_permission("landlord.create")
-def create_landlord():
-    payload = request.get_json(silent=True) or {}
-    name = (payload.get("name") or "").strip()
-    if not name:
-        return error_response("Name is required", 400)
+@landlords_bp.input(LandlordIn)
+def create_landlord(json_data):
+    name = json_data["name"].strip()
     actor = current_user()
-    code = (payload.get("code") or "").strip() or codes.next_code(Landlord, codes.prefix_for("landlord"))
+    code = (json_data.get("code") or "").strip() or codes.next_code(
+        Landlord, codes.prefix_for("landlord"),
+    )
     if Landlord.query.filter(db.func.lower(Landlord.code) == code.lower()).first():
         return error_response("Code already exists", 409)
     ll = Landlord(code=code, name=name, created_by=actor.id, updated_by=actor.id)
-    coerced = _coerce_payload(payload)
     for k in EDITABLE_FIELDS:
-        if k in coerced and k != "name":
-            setattr(ll, k, coerced.get(k))
+        if k in json_data and k != "name":
+            setattr(ll, k, json_data[k])
     db.session.add(ll)
     db.session.flush()
     audit.record(user=actor, action="create", module="landlord",
@@ -96,15 +98,14 @@ def create_landlord():
 
 @landlords_bp.put("/<int:landlord_id>")
 @require_permission("landlord.edit")
-def update_landlord(landlord_id: int):
+@landlords_bp.input(LandlordUpdateIn)
+def update_landlord(landlord_id: int, json_data):
     ll = Landlord.query.get_or_404(landlord_id)
-    payload = request.get_json(silent=True) or {}
     actor = current_user()
     old = ll.to_dict()
-    coerced = _coerce_payload(payload)
     for k in EDITABLE_FIELDS:
-        if k in coerced:
-            setattr(ll, k, coerced[k])
+        if k in json_data:
+            setattr(ll, k, json_data[k])
     ll.updated_by = actor.id
     audit.record(user=actor, action="update", module="landlord",
                  entity_type="landlord", entity_id=ll.id, old_value=old, new_value=ll.to_dict())
