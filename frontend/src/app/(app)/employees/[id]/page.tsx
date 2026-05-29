@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useRouteParams } from "@/lib/use-route-params";
 import Link from "next/link";
 import { ArrowLeft, User, Paperclip, BedDouble } from "lucide-react";
 import { api } from "@/lib/api";
+import { keys } from "@/lib/query-keys";
 import { AttachmentsTab } from "@/components/attachments-tab";
+import { ErrorState, Skeleton } from "@/components/ui/states";
 
 type Employee = {
   id: number;
@@ -44,23 +47,36 @@ type TabKey = "profile" | "documents" | "accommodation";
 
 export default function EmployeeDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = useRouteParams(params);
-  const [emp, setEmp] = useState<Employee | null>(null);
-  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabKey>("profile");
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const r = await api.get(`/employees/${id}`);
-        setEmp(r.data.data);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [id]);
+  const empQuery = useQuery({
+    queryKey: keys.employees.detail(id),
+    queryFn: async () => {
+      const r = await api.get(`/employees/${id}`);
+      return r.data.data as Employee;
+    },
+    enabled: Boolean(id),
+  });
 
-  if (loading || !emp) return <div className="text-sm text-muted-foreground animate-pulse">Loading employee…</div>;
+  if (empQuery.isLoading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-8 w-1/3" />
+        <Skeleton className="h-4 w-1/2" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+  if (empQuery.isError || !empQuery.data) {
+    return (
+      <ErrorState
+        title="Couldn't load this employee"
+        message="The request failed or the employee no longer exists."
+        onRetry={() => empQuery.refetch()}
+      />
+    );
+  }
+  const emp = empQuery.data;
 
   const tabs: { key: TabKey; label: string; icon: typeof User }[] = [
     { key: "profile", label: "Profile", icon: User },

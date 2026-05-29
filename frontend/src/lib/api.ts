@@ -75,9 +75,16 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
     original._retried = true;
-    refreshPromise ??= refreshAccessToken();
+    // Phase 7 fix: keep the shared refreshPromise until it actually
+    // settles. The previous code set refreshPromise=null synchronously
+    // after the await, which meant a third 401 arriving between the
+    // first await resolving and its consumer running would start a new
+    // refresh of its own. The .finally below ensures every concurrent
+    // 401 waits for the SAME refresh.
+    refreshPromise ??= refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
     const ok = await refreshPromise;
-    refreshPromise = null;
     if (!ok) return Promise.reject(error);
     return api.request(original);
   },

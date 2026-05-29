@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { Plus, Pencil, Upload, Download, UserX, ChevronRight, Users as UsersIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import type { components } from "@/lib/api-types";
+import { keys } from "@/lib/query-keys";
 import { Can } from "@/components/can";
 
 // Generated from the backend OpenAPI spec (Phase 4). Regenerate with
@@ -13,7 +15,7 @@ type EmployeeIn = components["schemas"]["EmployeeIn"];
 type EmployeeUpdateIn = components["schemas"]["EmployeeUpdateIn"];
 import { Modal, Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
 import { toast, errorMessage } from "@/components/ui/toast";
-import { SkeletonTable } from "@/components/ui/states";
+import { ErrorState, SkeletonTable } from "@/components/ui/states";
 
 type Division = { id: number; code: string; name: string };
 
@@ -54,42 +56,66 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 export default function EmployeesPage() {
-  const [rows, setRows] = useState<Employee[]>([]);
-  const [divisions, setDivisions] = useState<Division[]>([]);
+  const qc = useQueryClient();
+
+  // Live filter inputs (typed by the user) vs the "active" set the
+  // server query is keyed on. Hitting Enter/Filter promotes the live
+  // inputs into the active set; the query auto-refetches on a new key.
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [divisionId, setDivisionId] = useState("");
   const [accommodation, setAccommodation] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
+
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [showImport, setShowImport] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string> = {};
-      if (q) params.q = q;
-      if (status) params.status = status;
-      if (divisionId) params.division_id = divisionId;
-      if (accommodation) params.accommodation = accommodation;
-      const [e, d] = await Promise.all([
-        api.get("/employees", { params }),
-        divisions.length ? Promise.resolve({ data: { data: divisions } }) : api.get("/divisions"),
-      ]);
-      setRows(e.data.data);
-      if (!divisions.length) setDivisions(d.data.data);
-    } finally {
-      setLoading(false);
-    }
+  const divisionsQuery = useQuery({
+    queryKey: keys.divisions.list(),
+    queryFn: async () => (await api.get("/divisions")).data.data as Division[],
+    staleTime: 5 * 60_000,  // master data — rarely changes
+  });
+  const divisions = divisionsQuery.data ?? [];
+
+  const employeesQuery = useQuery({
+    queryKey: keys.employees.list(activeFilters),
+    queryFn: async () => {
+      const r = await api.get("/employees", { params: activeFilters });
+      return r.data.data as Employee[];
+    },
+  });
+  const rows = employeesQuery.data ?? [];
+  const loading = employeesQuery.isLoading;
+
+  const applyFilters = () => {
+    const params: Record<string, string> = {};
+    if (q) params.q = q;
+    if (status) params.status = status;
+    if (divisionId) params.division_id = divisionId;
+    if (accommodation) params.accommodation = accommodation;
+    setActiveFilters(params);
   };
 
-  useEffect(() => { load(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  const deactivateMutation = useMutation({
+    mutationFn: async (empId: number) => {
+      await api.delete(`/employees/${empId}`);
+    },
+    onSuccess: () => {
+      // Invalidate every cached employees list (any filter set) plus
+      // any detail page that might be open.
+      qc.invalidateQueries({ queryKey: keys.employees.all() });
+    },
+  });
 
   const deactivate = async (emp: Employee) => {
     if (!confirm(`Deactivate ${emp.full_name}?`)) return;
-    await api.delete(`/employees/${emp.id}`);
-    await load();
+    try {
+      await deactivateMutation.mutateAsync(emp.id);
+      toast.success(`${emp.full_name} deactivated`);
+    } catch (err) {
+      toast.error("Couldn't deactivate", errorMessage(err));
+    }
   };
 
   return (
@@ -118,7 +144,7 @@ export default function EmployeesPage() {
       <div className="glass rounded-xl p-4">
         <div className="flex items-center gap-2 flex-wrap mb-3">
           <input value={q} onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && load()}
+            onKeyDown={(e) => e.key === "Enter" && applyFilters()}
             placeholder="Search code, name, QID, passport, mobile…"
             className="h-9 w-full max-w-sm rounded-md border border-input bg-card/60 px-3 text-sm" />
           <select className={selectClass + " w-auto"} value={divisionId} onChange={(e) => setDivisionId(e.target.value)}>
@@ -134,7 +160,7 @@ export default function EmployeesPage() {
             <option value="yes">Needs accommodation</option>
             <option value="no">No accommodation</option>
           </select>
-          <button onClick={load} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm hover:bg-accent">Filter</button>
+          <button onClick={applyFilters} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm hover:bg-accent">Filter</button>
         </div>
 
         <div className="overflow-x-auto">
@@ -154,7 +180,15 @@ export default function EmployeesPage() {
             </thead>
             {loading && <SkeletonTable rows={6} columns={9} />}
             <tbody>
-              {!loading && rows.length === 0 ? (
+              {!loading && employeesQuery.isError ? (
+                <tr><td colSpan={9} className="py-6">
+                  <ErrorState
+                    title="Couldn't load employees"
+                    message="The request failed. Check your connection and try again."
+                    onRetry={() => employeesQuery.refetch()}
+                  />
+                </td></tr>
+              ) : !loading && rows.length === 0 ? (
                 <tr><td colSpan={9} className="py-10 text-center">
                   <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                     <UsersIcon className="h-4 w-4" />
@@ -162,7 +196,7 @@ export default function EmployeesPage() {
                   </div>
                 </td></tr>
               )
-              : !loading && rows.map((e) => (
+              : !loading && !employeesQuery.isError && rows.map((e) => (
                 <tr key={e.id} className="border-b border-border/60 hover:bg-accent/30">
                   <td className="py-2 pr-4 font-mono text-xs">{e.code}</td>
                   <td className="py-2 pr-4 font-medium">
@@ -213,10 +247,16 @@ export default function EmployeesPage() {
 
       <EmployeeDialog open={showForm} editing={editing} divisions={divisions}
         onClose={() => setShowForm(false)}
-        onSaved={async () => { setShowForm(false); await load(); }} />
+        onSaved={() => {
+          setShowForm(false);
+          qc.invalidateQueries({ queryKey: keys.employees.all() });
+        }} />
 
       <ImportDialog open={showImport} onClose={() => setShowImport(false)}
-        onImported={async () => { setShowImport(false); await load(); }} />
+        onImported={() => {
+          setShowImport(false);
+          qc.invalidateQueries({ queryKey: keys.employees.all() });
+        }} />
     </div>
   );
 }

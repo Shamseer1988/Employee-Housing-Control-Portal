@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useMemo } from "react";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { Building2, BedDouble } from "lucide-react";
 import { api } from "@/lib/api";
-import { Skeleton, EmptyState } from "@/components/ui/states";
+import { keys } from "@/lib/query-keys";
+import { Skeleton, EmptyState, ErrorState } from "@/components/ui/states";
 
 type Property = {
   id: number;
@@ -42,38 +44,37 @@ type Summary = Record<number, { beds?: BedSummary; rooms?: RoomSummary } | null>
 const n = (x: unknown): number => (typeof x === "number" && !Number.isNaN(x) ? x : 0);
 
 export default function RoomsOverviewPage() {
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [summary, setSummary] = useState<Summary>({});
-  const [loading, setLoading] = useState(true);
+  const propertiesQuery = useQuery({
+    queryKey: keys.properties.list(),
+    queryFn: async () => {
+      const r = await api.get("/properties");
+      return (r.data?.data ?? []) as Property[];
+    },
+  });
+  const properties = useMemo(() => propertiesQuery.data ?? [], [propertiesQuery.data]);
+  const loading = propertiesQuery.isLoading;
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const props = (await api.get("/properties")).data?.data as Property[] | undefined;
-        const list = Array.isArray(props) ? props : [];
-        setProperties(list);
-        const entries = await Promise.all(
-          list.map(async (p) => {
-            try {
-              const r = await api.get(`/properties/${p.id}/occupancy`);
-              return [p.id, r.data?.data ?? null] as const;
-            } catch {
-              return [p.id, null] as const;
-            }
-          }),
-        );
-        const s: Summary = {};
-        for (const [id, data] of entries) s[id] = data;
-        setSummary(s);
-      } catch {
-        setProperties([]);
-        setSummary({});
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  // Fan out one query per property for its occupancy slice. useQueries
+  // runs them in parallel and gives us a stable array shape, so a slow
+  // single property doesn't block the rest from rendering.
+  const occupancyQueries = useQueries({
+    queries: properties.map((p) => ({
+      queryKey: keys.properties.occupancy(p.id),
+      queryFn: async () => {
+        const r = await api.get(`/properties/${p.id}/occupancy`);
+        return r.data?.data ?? null;
+      },
+      staleTime: 30_000,
+    })),
+  });
+
+  const summary = useMemo<Summary>(() => {
+    const out: Summary = {};
+    properties.forEach((p, i) => {
+      out[p.id] = occupancyQueries[i]?.data ?? null;
+    });
+    return out;
+  }, [properties, occupancyQueries]);
 
   const totals = useMemo(() => {
     return Object.values(summary).reduce(
@@ -100,6 +101,14 @@ export default function RoomsOverviewPage() {
         <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight">Rooms &amp; Beds</h1>
         <p className="text-sm text-muted-foreground">Occupancy overview across all properties. Tap into a property to manage rooms and beds.</p>
       </div>
+
+      {propertiesQuery.isError && (
+        <ErrorState
+          title="Couldn't load properties"
+          message="The request failed — check your connection and try again."
+          onRetry={() => propertiesQuery.refetch()}
+        />
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Tile label="Total beds" value={loading ? "…" : totals.beds} />

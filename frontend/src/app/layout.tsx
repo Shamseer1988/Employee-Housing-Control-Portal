@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeBridge } from "@/components/theme-bridge";
 import { ServiceWorkerRegister } from "@/components/sw-register";
 import { ObservabilityInit } from "@/components/observability-init";
+import { QueryProvider } from "@/components/query-provider";
 import { Toaster } from "@/components/ui/toast";
 
 export const metadata: Metadata = {
@@ -52,7 +53,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <ThemeBridge />
           <ServiceWorkerRegister />
           <ObservabilityInit />
-          {children}
+          <QueryProvider>
+            {children}
+          </QueryProvider>
           <Toaster />
         </ThemeProvider>
       </body>

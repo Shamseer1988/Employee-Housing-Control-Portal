@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   Building2, BedDouble, Users, AlertTriangle, CheckCircle2,
@@ -12,6 +12,7 @@ import {
   PieChart, Pie, Cell, LineChart, Line, Legend,
 } from "recharts";
 import { api } from "@/lib/api";
+import { keys } from "@/lib/query-keys";
 
 type Summary = {
   properties: { total: number; active: number; maintenance: number; agreements_active: number; floors: number };
@@ -62,37 +63,38 @@ const ACTIVITY_ICON: Record<ActivityRow["type"], typeof BedDouble> = {
 };
 
 export default function DashboardPage() {
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [byProperty, setByProperty] = useState<OccupancyByProperty[]>([]);
-  const [monthly, setMonthly] = useState<MonthlyRow[]>([]);
-  const [activity, setActivity] = useState<ActivityRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  // One useQuery per panel so a failure on one chart doesn't blank the
+  // others. Query keys live in lib/query-keys.ts so mutations elsewhere
+  // can invalidate them precisely.
+  const summaryQuery = useQuery({
+    queryKey: keys.dashboard.summary(),
+    queryFn: async () => (await api.get("/dashboard/summary")).data.data as Summary,
+  });
+  const byPropertyQuery = useQuery({
+    queryKey: keys.dashboard.byProperty(),
+    queryFn: async () =>
+      (await api.get("/dashboard/charts/occupancy-by-property")).data.data as OccupancyByProperty[],
+  });
+  const monthlyQuery = useQuery({
+    queryKey: keys.dashboard.monthly(),
+    queryFn: async () =>
+      (await api.get("/dashboard/charts/monthly-movement", { params: { months: 6 } }))
+        .data.data as MonthlyRow[],
+  });
+  const activityQuery = useQuery({
+    queryKey: keys.dashboard.activity(),
+    queryFn: async () =>
+      (await api.get("/dashboard/activity", { params: { limit: 12 } })).data.data as ActivityRow[],
+  });
 
-  useEffect(() => {
-    (async () => {
-      // Fire each request independently — one chart failing must not
-      // leave the rest of the dashboard stuck in skeleton state.
-      const safe = async <T,>(p: Promise<{ data: { data: T } }>): Promise<T | null> => {
-        try {
-          const r = await p;
-          return r?.data?.data ?? null;
-        } catch {
-          return null;
-        }
-      };
-      const [s, p, m, a] = await Promise.all([
-        safe<Summary>(api.get("/dashboard/summary")),
-        safe<OccupancyByProperty[]>(api.get("/dashboard/charts/occupancy-by-property")),
-        safe<MonthlyRow[]>(api.get("/dashboard/charts/monthly-movement", { params: { months: 6 } })),
-        safe<ActivityRow[]>(api.get("/dashboard/activity", { params: { limit: 12 } })),
-      ]);
-      if (s) setSummary(s);
-      if (Array.isArray(p)) setByProperty(p);
-      if (Array.isArray(m)) setMonthly(m);
-      if (Array.isArray(a)) setActivity(a);
-      setLoading(false);
-    })();
-  }, []);
+  const summary = summaryQuery.data ?? null;
+  const byProperty = byPropertyQuery.data ?? [];
+  const monthly = monthlyQuery.data ?? [];
+  const activity = activityQuery.data ?? [];
+  // "loading" gates the initial skeleton: only the summary panel
+  // really blocks the layout. The other panels fall through with
+  // empty arrays + per-panel spinners.
+  const loading = summaryQuery.isLoading;
 
   if (loading) {
     return (
