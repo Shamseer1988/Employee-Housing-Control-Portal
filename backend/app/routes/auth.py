@@ -26,7 +26,7 @@ from flask_jwt_extended import (
     verify_jwt_in_request,
 )
 
-from ..extensions import db
+from ..extensions import db, limiter
 from ..models import User, JWTBlocklist
 from ..services import audit
 from ..utils.auth import login_required, current_user
@@ -36,6 +36,7 @@ auth_bp = Blueprint("auth", __name__)
 
 
 @auth_bp.post("/login")
+@limiter.limit("10 per minute")
 def login():
     payload = request.get_json(silent=True) or {}
     identifier = (payload.get("username") or payload.get("email") or "").strip().lower()
@@ -67,6 +68,7 @@ def login():
 
 
 @auth_bp.post("/refresh")
+@limiter.limit("10 per minute")
 @jwt_required(refresh=True)
 def refresh():
     identity = get_jwt_identity()

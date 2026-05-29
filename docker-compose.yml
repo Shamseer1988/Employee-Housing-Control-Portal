@@ -17,6 +17,19 @@ services:
       timeout: 5s
       retries: 5
 
+  # Shared Redis: rate-limit store now (Phase 2), Celery broker + SSE
+  # fan-out + notification unread cache later (Phases 5, 6, 8). No
+  # persistence — none of those datasets need to survive a restart.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -24,14 +37,19 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       FLASK_ENV: production
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
-      # "*" by default because same-origin via nginx doesn't trigger CORS
-      # anyway. Tighten for production (e.g. https://accommodation.pug.com).
-      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      # Production must list explicit origins — ProductionConfig.validate()
+      # rejects "*" at boot. Same-origin via nginx doesn't trigger CORS
+      # anyway, so for the typical single-host deployment you can set
+      # this to your actual hostname (e.g. https://housing.example.com).
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS (no '*' in production)}
       UPLOAD_FOLDER: /data/uploads
       SUPERUSER_USERNAME: ${SUPERUSER_USERNAME:-admin}
       SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-admin@pugroup.local}

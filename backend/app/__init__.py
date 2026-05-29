@@ -1,9 +1,10 @@
 import os
 from flask import Flask, jsonify
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-from config import config_map
-from .extensions import db, migrate, jwt
+from config import config_map, ProductionConfig
+from .extensions import db, migrate, jwt, limiter
 from .utils.responses import error_response
 
 
@@ -11,6 +12,17 @@ def create_app(config_name: str | None = None) -> Flask:
     env = config_name or os.getenv("FLASK_ENV", "development")
     app = Flask(__name__)
     app.config.from_object(config_map.get(env, config_map["default"]))
+
+    # Boot-time guardrail: production refuses to start with dev secrets
+    # or wildcard CORS. Raises RuntimeError before the app serves traffic.
+    if env == "production":
+        ProductionConfig.validate(app.config)
+
+    # ProxyFix so that get_remote_address() (rate-limit key), audit logs,
+    # and request.scheme honour exactly one upstream proxy (nginx). If a
+    # second proxy is ever inserted (e.g. Cloudflare in front of nginx),
+    # bump x_for to 2.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
@@ -20,6 +32,7 @@ def create_app(config_name: str | None = None) -> Flask:
     migrate.init_app(app, db)
     jwt.init_app(app)
     _register_jwt_callbacks()
+    limiter.init_app(app)
     # CORS: if any allowed origin is "*", broadcast that to flask-cors as a
     # single wildcard (the list form would attempt strict matching against
     # the literal string "*"). Same-origin requests through nginx don't
@@ -78,6 +91,7 @@ def create_app(config_name: str | None = None) -> Flask:
     app.register_blueprint(settings_bp, url_prefix="/api/v1/settings")
 
     register_error_handlers(app)
+    register_security_headers(app)
     register_cli(app)
 
     @app.route("/")
@@ -104,9 +118,35 @@ def register_error_handlers(app: Flask) -> None:
     def not_found(err):
         return error_response("Not found", 404)
 
+    @app.errorhandler(429)
+    def rate_limited(err):
+        # Flask-Limiter raises a 429 with the per-route limit string in
+        # `err.description`. Surface it so clients can show "try again in N".
+        return error_response("Too many requests", 429, str(getattr(err, "description", "")))
+
     @app.errorhandler(500)
     def server_error(err):
         return error_response("Internal server error", 500)
+
+
+def register_security_headers(app: Flask) -> None:
+    """Defense-in-depth headers on every response. Uses setdefault so
+    specific routes (e.g. file downloads that need a particular
+    Content-Type) can override individual headers."""
+    @app.after_request
+    def _security_headers(resp):
+        resp.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=63072000; includeSubDomains; preload",
+        )
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+        resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        resp.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+        )
+        return resp
 
 
 def register_cli(app: Flask) -> None:
