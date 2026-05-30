@@ -173,7 +173,12 @@ services:
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-12345}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-dev-secret-change-in-production-67890}
-    command: ["celery", "-A", "celery_worker.celery", "beat", "--loglevel=info"]
+    # Keep the PersistentScheduler's shelve file + pidfile in /tmp, not the
+    # read-mostly /app workdir. With restart:unless-stopped a single crash
+    # that leaves a half-written celerybeat-schedule in /app would otherwise
+    # loop forever; /tmp is recreated per container so beat always starts
+    # clean.
+    command: ["celery", "-A", "celery_worker.celery", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule", "--pidfile="]
 
   frontend:
     build:
