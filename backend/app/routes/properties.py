@@ -546,6 +546,138 @@ def property_structure(prop_id: int):
     return success_response(data=out, meta={"count": len(out)})
 
 
+@properties_bp.post("/<int:prop_id>/floors/<int:floor_id>/renumber-rooms")
+@require_permission("room.manage")
+def renumber_rooms(prop_id: int, floor_id: int):
+    """Phase 6: bulk-rename rooms on a floor using a new prefix.
+
+    Body: ``{"room_prefix": str, "force": bool=false}``.
+
+    The new room number for room index i (1..N within the floor) is
+    ``{room_prefix}{floor_seq}{nn}`` where ``floor_seq`` strips a single
+    optional letter prefix from the stored floor_number (so "F1" -> "1",
+    "G" -> "G"). Cascades to every bed's bed_code via occupancy.bed_code.
+
+    Refuses with 409 if any room on the floor has an occupied bed unless
+    ``force=true`` is supplied — caller takes responsibility. The rename
+    is two-phase: every row touched is first set to a guaranteed-unique
+    temp name, then to its final name, so the UNIQUE constraint never
+    fires on an intermediate state.
+    """
+    prop = Property.query.get_or_404(prop_id)
+    floor = Floor.query.filter_by(id=floor_id, property_id=prop.id).first_or_404()
+    payload = request.get_json(silent=True) or {}
+    new_prefix = str(payload.get("room_prefix") or "").strip()
+    force = bool(payload.get("force", False))
+
+    rooms = (
+        Room.query.filter_by(floor_id=floor.id)
+        .order_by(Room.room_number.asc())
+        .all()
+    )
+    if not rooms:
+        return success_response(
+            data={"renamed": 0, "rooms": []},
+            message="No rooms on this floor",
+        )
+
+    # Detect occupied beds across the floor before touching anything.
+    if not force:
+        occupied = (
+            db.session.query(db.func.count(Bed.id))
+            .filter(Bed.floor_id == floor.id, Bed.status == "occupied")
+            .scalar() or 0
+        )
+        if occupied:
+            return error_response(
+                f"Floor has {occupied} occupied bed(s). "
+                "Resolve the assignments first or re-send with force=true.",
+                status=409,
+                details={"occupied": occupied, "force_required": True},
+            )
+
+    # Determine floor_seq for room numbers (same rule as layout generator).
+    raw = floor.floor_number
+    # Strip a leading letter prefix to recover the numeric sequence; if
+    # the floor is "G" we keep it as-is.
+    floor_seq = raw if raw == "G" or raw.startswith("G") and len(raw) > 1 and raw[1:].isalpha() else (
+        "".join(ch for ch in raw if ch.isdigit()) or raw
+    )
+    if not floor_seq:
+        floor_seq = raw  # final fallback
+
+    room_pad = max(2, len(str(len(rooms))))
+    actor = current_user()
+
+    # Build rename map: (room, old_number, new_number).
+    renames: list[tuple[Room, str, str]] = []
+    for idx, room in enumerate(rooms, start=1):
+        new_no = f"{new_prefix}{floor_seq}{idx:0{room_pad}d}"
+        renames.append((room, room.room_number, new_no))
+
+    # No-op if nothing changes.
+    if all(old == new for _, old, new in renames):
+        return success_response(
+            data={"renamed": 0, "rooms": [r.to_dict() for r, _, _ in renames]},
+            message="Room numbers already match the requested prefix",
+        )
+
+    # Phase A: park every affected bed_code at a unique temp value so
+    # the room rename can't collide on the UNIQUE bed_code index.
+    for room, _, _ in renames:
+        for bed in room.beds or []:
+            bed.bed_code = f"__TMP_BED_{bed.id}__"
+    db.session.flush()
+
+    # Phase B: park every affected room_number at a unique temp value.
+    for room, _, _ in renames:
+        room.room_number = f"__TMP_ROOM_{room.id}__"
+    db.session.flush()
+
+    # Phase C: assign final room numbers + recomputed bed_codes.
+    old_to_new: list[dict] = []
+    for room, old_number, new_no in renames:
+        room.room_number = new_no
+        room.updated_by = actor.id
+        for bed in room.beds or []:
+            bed.bed_code = occupancy.bed_code(
+                prop.code, floor.floor_number, new_no, bed.bed_number,
+            )
+            bed.updated_by = actor.id
+        old_to_new.append({
+            "room_id": room.id,
+            "old_room_number": old_number,
+            "new_room_number": new_no,
+        })
+        audit.record(
+            user=actor, action="renumber", module="room",
+            entity_type="room", entity_id=room.id,
+            new_value={"room_number": new_no},
+            remarks=f"floor {floor.floor_number} prefix='{new_prefix}'",
+        )
+    db.session.flush()
+
+    audit.record(
+        user=actor, action="bulk_renumber", module="floor",
+        entity_type="floor", entity_id=floor.id,
+        new_value={
+            "renamed": len(renames),
+            "room_prefix": new_prefix,
+            "force": force,
+        },
+        remarks=f"Renumbered {len(renames)} rooms on floor {floor.floor_number}",
+    )
+    db.session.commit()
+    return success_response(
+        data={
+            "renamed": len(renames),
+            "rooms": [r.to_dict() for r, _, _ in renames],
+            "diff": old_to_new,
+        },
+        message=f"Renumbered {len(renames)} room(s) on floor {floor.floor_number}",
+    )
+
+
 @properties_bp.get("/agreements/expiring")
 @require_permission("property.view")
 def expiring():

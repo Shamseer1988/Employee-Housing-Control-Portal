@@ -517,6 +517,99 @@ def test_bed_maintenance_reflected_in_property_summary(client, auth_headers):
     assert flipped["status"] == "maintenance"
 
 
+# ---------- Phase 6: floor-scoped room renumbering ----------
+
+
+def test_renumber_rooms_rewrites_room_numbers_and_bed_codes(client, auth_headers):
+    prop = _make_property(client, auth_headers, "Renum P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    r1 = _make_room(client, auth_headers, floor["id"], "101", capacity=2)
+    r2 = _make_room(client, auth_headers, floor["id"], "102", capacity=1)
+    client.post(f"/api/v1/rooms/{r1['id']}/beds", headers=auth_headers, json={"bed_number": "1"})
+    client.post(f"/api/v1/rooms/{r1['id']}/beds", headers=auth_headers, json={"bed_number": "2"})
+    client.post(f"/api/v1/rooms/{r2['id']}/beds", headers=auth_headers, json={"bed_number": "1"})
+
+    resp = client.post(
+        f"/api/v1/properties/{prop['id']}/floors/{floor['id']}/renumber-rooms",
+        headers=auth_headers,
+        json={"room_prefix": "R"},
+    )
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    data = resp.get_json()["data"]
+    assert data["renamed"] == 2
+    # Mapping is positional (sorted by old room_number ASC).
+    diff = {d["room_id"]: d["new_room_number"] for d in data["diff"]}
+    assert diff[r1["id"]] == "R101"
+    assert diff[r2["id"]] == "R102"
+
+    # Bed codes are recomputed for every bed in the renamed rooms.
+    beds_r1 = client.get(f"/api/v1/rooms/{r1['id']}/beds", headers=auth_headers).get_json()["data"]
+    bed_codes = sorted(b["bed_code"] for b in beds_r1)
+    assert bed_codes == [
+        f"{prop['code']}-F1-RR101-B1",
+        f"{prop['code']}-F1-RR101-B2",
+    ]
+
+
+def test_renumber_rooms_refuses_with_occupied_bed_unless_forced(app, client, auth_headers):
+    prop = _make_property(client, auth_headers, "Renum Occ P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    room = _make_room(client, auth_headers, floor["id"], "101", capacity=1)
+    bed = client.post(
+        f"/api/v1/rooms/{room['id']}/beds", headers=auth_headers,
+        json={"bed_number": "1"},
+    ).get_json()["data"]
+
+    # Flip the bed to "occupied" directly (Phase 6 doesn't need a full
+    # assignment txn for this guard test).
+    with app.app_context():
+        from app.extensions import db
+        from app.models import Bed
+        b = db.session.get(Bed, bed["id"])
+        b.status = "occupied"
+        db.session.commit()
+
+    # Without force -> 409.
+    resp = client.post(
+        f"/api/v1/properties/{prop['id']}/floors/{floor['id']}/renumber-rooms",
+        headers=auth_headers,
+        json={"room_prefix": "X"},
+    )
+    assert resp.status_code == 409
+    body = resp.get_json()
+    assert body["details"]["occupied"] == 1
+    assert body["details"]["force_required"] is True
+
+    # With force -> 200 and the renumber proceeds.
+    resp2 = client.post(
+        f"/api/v1/properties/{prop['id']}/floors/{floor['id']}/renumber-rooms",
+        headers=auth_headers,
+        json={"room_prefix": "X", "force": True},
+    )
+    assert resp2.status_code == 200
+    assert resp2.get_json()["data"]["renamed"] == 1
+
+
+def test_renumber_rooms_swap_does_not_collide_on_unique(client, auth_headers):
+    """Two rooms that effectively swap numbers via the new prefix must
+    survive the UNIQUE(room_number) constraint — proves the two-phase
+    rename works."""
+    prop = _make_property(client, auth_headers, "Renum Swap P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    # Start with weird out-of-order names so the deterministic algorithm
+    # has to actually move them.
+    _make_room(client, auth_headers, floor["id"], "B-102", capacity=1)
+    _make_room(client, auth_headers, floor["id"], "A-101", capacity=1)
+    resp = client.post(
+        f"/api/v1/properties/{prop['id']}/floors/{floor['id']}/renumber-rooms",
+        headers=auth_headers,
+        json={"room_prefix": ""},
+    )
+    assert resp.status_code == 200
+    new_numbers = sorted(r["room_number"] for r in resp.get_json()["data"]["rooms"])
+    assert new_numbers == ["101", "102"]
+
+
 def test_room_blocked_reflected_in_property_summary(client, auth_headers):
     """Phase 5b: room.occupancy_status change shows in the room totals."""
     prop = _make_property(client, auth_headers, "Block P")

@@ -217,6 +217,22 @@ def register_commands(app: Flask) -> None:
                 Notification.__table__.create(bind=conn)
                 click.echo("  + notifications")
 
+            # --- Phase 6: drop unused property denormalisation columns.
+            # _counts_for() (in routes/properties.py) is the single source
+            # of truth now. The columns were nullable and never written.
+            if insp.has_table("properties"):
+                prop_cols = {c["name"] for c in insp.get_columns("properties")}
+                dialect = bind.dialect.name
+                for col in ("total_floors", "total_rooms", "total_bed_capacity"):
+                    if col not in prop_cols:
+                        continue
+                    # SQLite ≥ 3.35 and Postgres both support DROP COLUMN.
+                    # We avoid a batch_alter_table dance because the column
+                    # has no constraints and no other table references it.
+                    if dialect in ("sqlite", "postgresql"):
+                        conn.execute(text(f"ALTER TABLE properties DROP COLUMN {col}"))
+                        click.echo(f"  - properties.{col}")
+
         click.echo("Done.")
 
     @app.cli.command("migrate-phase1")

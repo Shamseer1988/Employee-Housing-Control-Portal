@@ -16,8 +16,6 @@ type Property = {
   area: string | null;
   status: string;
   property_type: string;
-  total_floors: number | null;
-  total_rooms: number | null;
 };
 
 type BedSummary = {

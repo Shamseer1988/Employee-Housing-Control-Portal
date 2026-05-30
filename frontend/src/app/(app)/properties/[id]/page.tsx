@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Building2, Paperclip, FileText, Layers, BedDouble,
-  Calendar, AlertTriangle, Plus, Pencil, Wrench, Lock, Trash2,
+  Calendar, AlertTriangle, Plus, Pencil, Trash2,
   SlidersHorizontal,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -14,6 +14,7 @@ import { Can } from "@/components/can";
 import { Modal, Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
 import { toast, errorMessage } from "@/components/ui/toast";
 import { AttachmentsTab } from "@/components/attachments-tab";
+import { BedsPanel } from "@/components/beds-panel";
 
 type Property = {
   id: number;
@@ -170,38 +171,115 @@ function OverviewTab({ property }: { property: Property }) {
     </div>
   );
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div className="glass rounded-xl p-4 lg:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-4">
-        <Cell k="Type" v={property.property_type.replaceAll("_", " ")} />
-        <Cell k="Ownership" v={property.ownership_type.replaceAll("_", " ")} />
-        <Cell k="Managed by" v={property.managed_by} />
-        <Cell k="Building #" v={property.building_number} />
-        <Cell k="Zone" v={property.zone} />
-        <Cell k="Street" v={property.street} />
-        <Cell k="Area" v={property.area} />
-        <Cell k="City" v={property.city} />
-        <Cell k="Default division" v={property.default_division?.name} />
-        <Cell k="Floors" v={property.floors_count} />
-        <Cell k="Rooms" v={property.rooms_count} />
-        <Cell k="Beds" v={property.beds_count} />
-        {property.remarks && (
-          <div className="col-span-full">
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">Remarks</div>
-            <div className="text-sm">{property.remarks}</div>
-          </div>
-        )}
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="glass rounded-xl p-4 lg:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-4">
+          <Cell k="Type" v={property.property_type.replaceAll("_", " ")} />
+          <Cell k="Ownership" v={property.ownership_type.replaceAll("_", " ")} />
+          <Cell k="Managed by" v={property.managed_by} />
+          <Cell k="Building #" v={property.building_number} />
+          <Cell k="Zone" v={property.zone} />
+          <Cell k="Street" v={property.street} />
+          <Cell k="Area" v={property.area} />
+          <Cell k="City" v={property.city} />
+          <Cell k="Default division" v={property.default_division?.name} />
+          <Cell k="Floors" v={property.floors_count} />
+          <Cell k="Rooms" v={property.rooms_count} />
+          <Cell k="Beds" v={property.beds_count} />
+          {property.remarks && (
+            <div className="col-span-full">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">Remarks</div>
+              <div className="text-sm">{property.remarks}</div>
+            </div>
+          )}
+        </div>
+        <div className="glass rounded-xl p-4 space-y-3">
+          <div className="text-sm font-semibold">Active agreement</div>
+          {property.active_agreement ? (
+            <AgreementCard ag={property.active_agreement} />
+          ) : (
+            <div className="text-sm text-muted-foreground">No active agreement on file.</div>
+          )}
+          {property.map_link && (
+            <a href={property.map_link} target="_blank" rel="noreferrer"
+              className="text-xs text-primary underline">Open on Google Maps ↗</a>
+          )}
+        </div>
       </div>
-      <div className="glass rounded-xl p-4 space-y-3">
-        <div className="text-sm font-semibold">Active agreement</div>
-        {property.active_agreement ? (
-          <AgreementCard ag={property.active_agreement} />
-        ) : (
-          <div className="text-sm text-muted-foreground">No active agreement on file.</div>
-        )}
-        {property.map_link && (
-          <a href={property.map_link} target="_blank" rel="noreferrer"
-            className="text-xs text-primary underline">Open on Google Maps ↗</a>
-        )}
+      <OccupancySnapshot propertyId={property.id} />
+    </div>
+  );
+}
+
+type OccupancyPayload = {
+  beds: {
+    total: number; empty: number; occupied: number;
+    reserved: number; maintenance: number; blocked: number;
+    occupancy_percent: number;
+  };
+  rooms: {
+    total: number; empty: number; partially_occupied: number;
+    full: number; maintenance: number; blocked: number;
+  };
+};
+
+function OccupancySnapshot({ propertyId }: { propertyId: number }) {
+  const [data, setData] = useState<OccupancyPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.get(`/properties/${propertyId}/occupancy`)
+      .then((r) => { if (!cancelled) setData(r.data.data); })
+      .catch(() => { if (!cancelled) setData(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [propertyId]);
+
+  if (loading) {
+    return <div className="glass rounded-xl p-4 text-sm text-muted-foreground">Loading occupancy…</div>;
+  }
+  if (!data) {
+    return <div className="glass rounded-xl p-4 text-sm text-muted-foreground">No occupancy data yet.</div>;
+  }
+  const b = data.beds;
+  const r = data.rooms;
+  const counter = (label: string, value: number, tone: string) => (
+    <div className={"rounded-md border px-3 py-2 " + tone}>
+      <div className="text-lg font-semibold leading-none">{value}</div>
+      <div className="text-[10px] uppercase tracking-wide mt-1">{label}</div>
+    </div>
+  );
+  return (
+    <div className="glass rounded-xl p-4 space-y-3">
+      <div className="flex items-end justify-between flex-wrap gap-2">
+        <div>
+          <div className="text-sm font-semibold">Occupancy snapshot</div>
+          <div className="text-xs text-muted-foreground">
+            Live counts from <span className="font-mono">/properties/{propertyId}/occupancy</span>. Refreshes when bed/room status changes.
+          </div>
+        </div>
+        <div className="inline-flex items-baseline gap-2">
+          <span className="text-2xl font-semibold">{b.occupancy_percent}%</span>
+          <span className="text-xs text-muted-foreground">occupied of {b.total} bed{b.total === 1 ? "" : "s"}</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+        {counter("Occupied", b.occupied, "bg-emerald-500/5 border-emerald-500/30 text-emerald-700 dark:text-emerald-400")}
+        {counter("Empty", b.empty, "bg-muted/30 border-border")}
+        {counter("Reserved", b.reserved, "bg-sky-500/5 border-sky-500/30 text-sky-700 dark:text-sky-400")}
+        {counter("Maintenance", b.maintenance, "bg-amber-500/5 border-amber-500/30 text-amber-700 dark:text-amber-400")}
+        {counter("Blocked", b.blocked, "bg-rose-500/5 border-rose-500/30 text-rose-700 dark:text-rose-400")}
+        {counter("Total", b.total, "border-border bg-card/60")}
+      </div>
+      <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
+        <span>Rooms — {r.total} total</span>
+        {r.empty > 0 && <span>· {r.empty} empty</span>}
+        {r.partially_occupied > 0 && <span>· {r.partially_occupied} partial</span>}
+        {r.full > 0 && <span>· {r.full} full</span>}
+        {r.maintenance > 0 && <span>· {r.maintenance} maintenance</span>}
+        {r.blocked > 0 && <span>· {r.blocked} blocked</span>}
       </div>
     </div>
   );
@@ -407,26 +485,8 @@ type Room = {
   bed_counts: { total: number; occupied: number; empty: number; reserved: number; maintenance: number; blocked: number };
 };
 
-type Bed = {
-  id: number;
-  bed_number: string;
-  bed_code: string;
-  bed_type: string;
-  status: string;
-  remarks: string | null;
-};
-
 const ROOM_TYPES = ["shared", "single", "executive", "supervisor", "family", "temporary"];
 const GENDERS = ["any", "male", "female"];
-const BED_TYPES = ["single", "bunk_upper", "bunk_lower"];
-
-const BED_STATUS_TONE: Record<string, string> = {
-  empty: "bg-muted text-muted-foreground",
-  occupied: "bg-emerald-500/10 text-emerald-600",
-  reserved: "bg-sky-500/10 text-sky-600",
-  maintenance: "bg-amber-500/10 text-amber-600",
-  blocked: "bg-rose-500/10 text-rose-600",
-};
 
 const ROOM_STATUS_TONE: Record<string, string> = {
   empty: "bg-muted text-muted-foreground",
@@ -904,141 +964,8 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
   );
 }
 
-function BedsPanel({ room, onChanged, onEditRoom }: {
-  room: Room; onChanged: () => void; onEditRoom: () => void;
-}) {
-  const [beds, setBeds] = useState<Bed[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const [newNumber, setNewNumber] = useState("");
-  const [newType, setNewType] = useState("single");
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const resp = await api.get(`/rooms/${room.id}/beds`);
-      setBeds(resp.data.data);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { load(); }, [room.id]);  // eslint-disable-line react-hooks/exhaustive-deps
-
-  const create = async () => {
-    if (!newNumber.trim()) return;
-    setAdding(true);
-    try {
-      const resp = await api.post(`/rooms/${room.id}/beds`, { bed_number: newNumber.trim(), bed_type: newType });
-      toast.success(`Bed ${resp.data?.data?.bed_code ?? newNumber.trim()} added`);
-      setNewNumber("");
-      await load();
-      onChanged();
-    } catch (err: unknown) {
-      toast.error("Add bed failed", errorMessage(err));
-    } finally { setAdding(false); }
-  };
-
-  const setStatus = async (bed: Bed, status: string) => {
-    try {
-      await api.post(`/beds/${bed.id}/status`, { status });
-      toast.success(`Bed ${bed.bed_code ?? bed.bed_number} set to ${status}`);
-      await load();
-      onChanged();
-    } catch (err: unknown) {
-      toast.error("Status update failed", errorMessage(err));
-    }
-  };
-
-  const remove = async (bed: Bed) => {
-    if (!confirm(`Delete bed ${bed.bed_code}?`)) return;
-    try {
-      await api.delete(`/beds/${bed.id}`);
-      toast.success(`Bed ${bed.bed_code} deleted`);
-      await load();
-      onChanged();
-    } catch (err: unknown) {
-      toast.error("Delete failed", errorMessage(err));
-    }
-  };
-
-  return (
-    <div className="border-t border-border p-4 space-y-3 bg-card/30">
-      <div className="flex items-center justify-between">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">Beds</div>
-        <Can perm="room.manage">
-          <button onClick={onEditRoom} className="text-xs text-primary inline-flex items-center gap-1 hover:underline">
-            <Pencil className="h-3 w-3" /> Edit room
-          </button>
-        </Can>
-      </div>
-
-      {loading ? <div className="text-sm text-muted-foreground">Loading beds…</div> : (
-        beds.length === 0 ? <div className="text-sm text-muted-foreground">No beds yet.</div> : (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {beds.map((b) => (
-              <div key={b.id} className="rounded-md border border-border bg-card/60 p-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-mono text-xs">{b.bed_code}</div>
-                  <span className={"rounded-full px-2 py-0.5 text-[10px] " + BED_STATUS_TONE[b.status]}>
-                    {b.status}
-                  </span>
-                </div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-1">
-                  {b.bed_type.replace("_", " ")}
-                </div>
-                <Can perm="bed.manage">
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {b.status === "empty" && (
-                      <>
-                        <button onClick={() => setStatus(b, "maintenance")} className="text-[10px] inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 hover:bg-accent">
-                          <Wrench className="h-2.5 w-2.5" /> Maintain
-                        </button>
-                        <button onClick={() => setStatus(b, "blocked")} className="text-[10px] inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 hover:bg-accent">
-                          <Lock className="h-2.5 w-2.5" /> Block
-                        </button>
-                      </>
-                    )}
-                    {(b.status === "maintenance" || b.status === "blocked") && (
-                      <button onClick={() => setStatus(b, "empty")} className="text-[10px] rounded border border-border px-2 py-0.5 hover:bg-accent">
-                        Mark empty
-                      </button>
-                    )}
-                    {b.status !== "occupied" && (
-                      <button onClick={() => remove(b)} className="text-[10px] inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-destructive hover:bg-destructive/10">
-                        <Trash2 className="h-2.5 w-2.5" /> Delete
-                      </button>
-                    )}
-                  </div>
-                </Can>
-              </div>
-            ))}
-          </div>
-        )
-      )}
-
-      <Can perm="bed.manage">
-        <div className="flex items-center gap-2 pt-2 border-t border-border">
-          <input
-            placeholder={`Bed # (capacity ${beds.length}/${room.capacity})`}
-            value={newNumber}
-            onChange={(e) => setNewNumber(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && create()}
-            className="h-8 flex-1 rounded-md border border-input bg-card/60 px-2 text-sm"
-          />
-          <select value={newType} onChange={(e) => setNewType(e.target.value)}
-            className="h-8 rounded-md border border-input bg-card/60 px-2 text-sm">
-            {BED_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
-          </select>
-          <button onClick={create} disabled={adding || !newNumber.trim() || beds.length >= room.capacity}
-            className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-            {adding ? "…" : "Add bed"}
-          </button>
-        </div>
-      </Can>
-    </div>
-  );
-}
+// BedsPanel was extracted to components/beds-panel.tsx in Phase 6 so it
+// could be unit-tested in isolation. The import is at the top of this file.
 
 const STATUS_OPTIONS: { value: string; label: string; tone: string; help: string }[] = [
   { value: "active",      label: "Active",       tone: "border-emerald-500 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400", help: "Property is operational. New assignments are allowed." },

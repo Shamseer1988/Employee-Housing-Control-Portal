@@ -43,9 +43,6 @@ def test_property_with_agreement_and_expiry(client, auth_headers):
             "property_type": "full_building",
             "city": "Doha",
             "zone": "27",
-            "total_floors": 4,
-            "total_rooms": 24,
-            "total_bed_capacity": 96,
         },
     )
     assert prop.status_code == 201, prop.get_data(as_text=True)
