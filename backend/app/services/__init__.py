@@ -1,7 +1,7 @@
 from . import (
     audit, permissions, codes, attachments, reminders, occupancy,
     employee_import, assignments, movements, renewals, maintenance, dashboard,
-    reports, settings, approvals, demo_data, bulk_movements,
+    reports, settings, approvals, demo_data, bulk_movements, layout,
 )
 
 __all__ = [
@@ -9,4 +9,5 @@ __all__ = [
     "reminders", "occupancy", "employee_import",
     "assignments", "movements", "renewals", "maintenance", "dashboard",
     "reports", "settings", "approvals", "demo_data", "bulk_movements",
+    "layout",
 ]

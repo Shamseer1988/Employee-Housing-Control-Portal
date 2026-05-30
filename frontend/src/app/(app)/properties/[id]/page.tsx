@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouteParams } from "@/lib/use-route-params";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Building2, Paperclip, FileText, Layers, BedDouble,
@@ -56,9 +57,16 @@ type Landlord = { id: number; code: string; name: string };
 
 type TabKey = "overview" | "agreement" | "floors" | "rooms" | "attachments";
 
+const VALID_TABS: TabKey[] = ["overview", "agreement", "floors", "rooms", "attachments"];
+
 export default function PropertyDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = useRouteParams(params);
-  const [tab, setTab] = useState<TabKey>("overview");
+  const searchParams = useSearchParams();
+  const initialTab = (() => {
+    const q = searchParams.get("tab") as TabKey | null;
+    return q && VALID_TABS.includes(q) ? q : "overview";
+  })();
+  const [tab, setTab] = useState<TabKey>(initialTab);
   const [property, setProperty] = useState<Property | null>(null);
   const [loading, setLoading] = useState(true);
   const [showStatusModal, setShowStatusModal] = useState(false);

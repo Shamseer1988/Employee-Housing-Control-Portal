@@ -3,7 +3,7 @@ from flask import Blueprint, request
 
 from ..extensions import db
 from ..models import Property, PropertyAgreement, Landlord, Division, Floor, Room, Bed, Employee
-from ..services import audit, codes, reminders, occupancy
+from ..services import audit, codes, reminders, occupancy, layout as layout_service
 from ..utils.auth import require_permission, current_user
 from ..utils.responses import success_response, error_response
 
@@ -157,8 +157,38 @@ def create_property():
     db.session.flush()
     audit.record(user=actor, action="create", module="property",
                  entity_type="property", entity_id=prop.id, new_value=prop.to_dict())
+
+    layout_counts = None
+    layout = payload.get("layout")
+    if layout:
+        if not isinstance(layout, dict):
+            db.session.rollback()
+            return error_response("layout must be an object", 400)
+        try:
+            layout_counts = layout_service.generate_structure(
+                prop,
+                floors=int(layout.get("floors", 0) or 0),
+                rooms_per_floor=int(layout.get("rooms_per_floor", 0) or 0),
+                beds_per_room=int(layout.get("beds_per_room", 0) or 0),
+                floor_prefix=str(layout.get("floor_prefix") or "").strip(),
+                room_prefix=str(layout.get("room_prefix") or "").strip(),
+                ground_floor=bool(layout.get("ground_floor", False)),
+                default_room_type=str(layout.get("default_room_type") or "shared"),
+                default_bed_type=str(layout.get("default_bed_type") or "single"),
+                actor=actor,
+            )
+        except layout_service.LayoutError as e:
+            db.session.rollback()
+            return error_response(str(e), 400)
+        except (TypeError, ValueError) as e:
+            db.session.rollback()
+            return error_response(f"Invalid layout payload: {e}", 400)
+
     db.session.commit()
-    return success_response(data=prop.to_dict(), message="Property created", status=201)
+    data = prop.to_dict()
+    if layout_counts is not None:
+        data["layout_generated"] = layout_counts
+    return success_response(data=data, message="Property created", status=201)
 
 
 @properties_bp.put("/<int:prop_id>")
