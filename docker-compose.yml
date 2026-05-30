@@ -145,6 +145,11 @@ services:
       UPLOAD_FOLDER: /data/uploads
     volumes:
       - pug_uploads:/data/uploads
+    # The shared backend image bakes a curl localhost:5000 healthcheck;
+    # celery processes don't serve HTTP, so disable it to avoid a
+    # permanent false "unhealthy".
+    healthcheck:
+      disable: true
     command: ["celery", "-A", "celery_worker.celery", "worker", "--loglevel=info"]
 
   beat:
@@ -185,6 +190,8 @@ services:
     # that leaves a half-written celerybeat-schedule in /app would otherwise
     # loop forever; /tmp is recreated per container so beat always starts
     # clean.
+    healthcheck:
+      disable: true
     command: ["celery", "-A", "celery_worker.celery", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule", "--pidfile="]
 
   frontend:
