@@ -712,8 +712,12 @@ function MiniStat({ label, value }: { label: string; value: number }) {
   );
 }
 
-const ROOM_CAPACITY_OPTIONS = [1, 2, 3, 4, 5, 6];
-const ROOM_BED_TYPES = ["single", "bunk_upper", "bunk_lower"] as const;
+// Phase 3: rooms are described by physical bed UNITS, not sleeping slots.
+// A "single" unit = 1 sleeping slot (one bed). A "bunk" unit = 2 sleeping
+// slots (bunk_lower + bunk_upper). Sleeping capacity = units * slots/unit.
+type UnitType = "single" | "bunk";
+const MAX_BED_UNITS = 12;
+const MAX_EDIT_CAPACITY = 24;
 
 function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
   open: boolean; floorId: number | null; floors: Floor[]; editing: Room | null;
@@ -721,7 +725,8 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
 }) {
   const [form, setForm] = useState<Record<string, unknown>>({});
   const [autoCreateBeds, setAutoCreateBeds] = useState(true);
-  const [autoBedType, setAutoBedType] = useState<typeof ROOM_BED_TYPES[number]>("single");
+  const [units, setUnits] = useState<number>(2);
+  const [unitType, setUnitType] = useState<UnitType>("single");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -729,13 +734,20 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
       setForm(editing as unknown as Record<string, unknown>);
       setAutoCreateBeds(false);
     } else {
-      setForm({ room_type: "shared", capacity: 2, allowed_gender: "any", has_bathroom: false, has_ac: true });
+      setForm({ room_type: "shared", allowed_gender: "any", has_bathroom: false, has_ac: true });
       setAutoCreateBeds(true);
+      setUnits(2);
+      setUnitType("single");
     }
   }, [editing, open]);
 
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
-  const capacity = Math.max(1, Math.min(6, Number(form.capacity ?? 1)));
+
+  // New-mode derived capacity. Clamp here so the preview matches what we POST.
+  const safeUnits = Math.max(1, Math.min(MAX_BED_UNITS, Math.floor(units || 1)));
+  const slotsPerUnit = unitType === "bunk" ? 2 : 1;
+  const derivedCapacity = safeUnits * slotsPerUnit;
+  const minEditCapacity = Math.max(1, editing?.bed_counts.total ?? 1);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -746,26 +758,21 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
         toast.success(`Room ${editing.room_number} updated`);
       } else {
         if (!floorId) throw new Error("No floor selected");
-        const resp = await api.post(`/floors/${floorId}/rooms`, form);
+        const roomPayload = { ...form, capacity: derivedCapacity };
+        const resp = await api.post(`/floors/${floorId}/rooms`, roomPayload);
         const newRoom = resp.data?.data;
         let bedsCreated = 0;
         if (autoCreateBeds && newRoom?.id) {
-          for (let i = 1; i <= capacity; i++) {
-            try {
-              await api.post(`/rooms/${newRoom.id}/beds`, {
-                bed_number: String(i),
-                bed_type: autoBedType,
-              });
-              bedsCreated++;
-            } catch {
-              /* keep going; the user can re-add manually */
-            }
-          }
+          const unitsArr = Array.from({ length: safeUnits }, () => ({ type: unitType }));
+          const bulkResp = await api.post(`/rooms/${newRoom.id}/beds/bulk`, { units: unitsArr });
+          bedsCreated = bulkResp.data?.data?.count ?? 0;
         }
         const roomLabel = newRoom?.room_number ?? "";
         toast.success(
           `Room ${roomLabel} created`,
-          bedsCreated > 0 ? `${bedsCreated} bed${bedsCreated === 1 ? "" : "s"} added automatically.` : undefined,
+          bedsCreated > 0
+            ? `${bedsCreated} bed${bedsCreated === 1 ? "" : "s"} added (${safeUnits} ${unitType}${safeUnits === 1 ? "" : "s"}).`
+            : undefined,
         );
       }
       onSaved();
@@ -812,26 +819,54 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
           </Field>
         </div>
 
-        {/* Capacity picker: 1-6 buttons */}
-        <Field label={`Capacity (${capacity} bed${capacity === 1 ? "" : "s"})`}>
-          <div className="flex flex-wrap gap-2">
-            {ROOM_CAPACITY_OPTIONS.map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => set("capacity", n)}
-                className={
-                  "h-9 w-12 rounded-md border text-sm font-medium transition-colors " +
-                  (n === capacity
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "border-border bg-card/60 hover:bg-accent")
-                }
-              >
-                {n}
-              </button>
-            ))}
+        {editing ? (
+          // Edit mode: bed structure already exists; just allow tweaking the
+          // total sleeping capacity within the no-shrink-below-bed-count guard.
+          <Field label="Sleeping capacity (people)">
+            <input
+              type="number"
+              min={minEditCapacity}
+              max={MAX_EDIT_CAPACITY}
+              className={inputClass}
+              value={Number(form.capacity ?? editing.capacity)}
+              onChange={(e) => set("capacity", Math.max(minEditCapacity, Number(e.target.value) || minEditCapacity))}
+            />
+            <div className="text-[11px] text-muted-foreground mt-1">
+              Can&apos;t be lower than the current bed count ({editing.bed_counts.total}). Use the room&apos;s bed list to add/remove beds.
+            </div>
+          </Field>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Bed frames (units)">
+              <input
+                type="number"
+                min={1}
+                max={MAX_BED_UNITS}
+                className={inputClass}
+                value={units}
+                onChange={(e) => setUnits(Math.max(1, Math.min(MAX_BED_UNITS, Math.floor(Number(e.target.value) || 1))))}
+              />
+            </Field>
+            <Field label="Bed type">
+              <div className="flex items-center gap-3 h-9">
+                <label className="inline-flex items-center gap-1.5 text-sm">
+                  <input type="radio" name="unitType" checked={unitType === "single"} onChange={() => setUnitType("single")} />
+                  Single
+                </label>
+                <label className="inline-flex items-center gap-1.5 text-sm">
+                  <input type="radio" name="unitType" checked={unitType === "bunk"} onChange={() => setUnitType("bunk")} />
+                  Bunk
+                </label>
+              </div>
+            </Field>
+            <Field label="Sleeping capacity">
+              <div className="h-9 flex items-center text-sm">
+                <span className="font-semibold">{derivedCapacity}</span>&nbsp;
+                <span className="text-muted-foreground">person{derivedCapacity === 1 ? "" : "s"}</span>
+              </div>
+            </Field>
           </div>
-        </Field>
+        )}
 
         {!editing && (
           <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
@@ -843,27 +878,15 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
                 className="mt-0.5"
               />
               <span>
-                <span className="font-medium">Automatically add {capacity} bed{capacity === 1 ? "" : "s"}</span>
+                <span className="font-medium">Automatically add {derivedCapacity} bed{derivedCapacity === 1 ? "" : "s"}</span>
                 <span className="block text-xs text-muted-foreground">
-                  Creates beds numbered 1 to {capacity} with codes like
-                  {" "}<span className="font-mono">PROP-FX-RY-B1…B{capacity}</span>. Skip and add them manually later if you prefer.
+                  {unitType === "bunk"
+                    ? <>Creates {safeUnits} bunk frame{safeUnits === 1 ? "" : "s"} = {derivedCapacity} sleeping slots, numbered <span className="font-mono">1L, 1U, 2L, 2U…</span></>
+                    : <>Creates {derivedCapacity} single bed{derivedCapacity === 1 ? "" : "s"} numbered <span className="font-mono">1…{derivedCapacity}</span></>}
+                  . Skip if your room is mixed; you can add beds manually afterwards.
                 </span>
               </span>
             </label>
-            {autoCreateBeds && (
-              <div className="flex items-center gap-2 pl-6">
-                <span className="text-xs text-muted-foreground">Bed type:</span>
-                <select
-                  className={selectClass + " w-auto"}
-                  value={autoBedType}
-                  onChange={(e) => setAutoBedType(e.target.value as typeof ROOM_BED_TYPES[number])}
-                >
-                  {ROOM_BED_TYPES.map((t) => (
-                    <option key={t} value={t}>{t.replace("_", " ")}</option>
-                  ))}
-                </select>
-              </div>
-            )}
           </div>
         )}
 
@@ -873,7 +896,7 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
           <button type="submit" disabled={busy} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-            {busy ? "Saving…" : (editing ? "Save changes" : autoCreateBeds ? `Create room + ${capacity} bed${capacity === 1 ? "" : "s"}` : "Create room")}
+            {busy ? "Saving…" : (editing ? "Save changes" : autoCreateBeds ? `Create room + ${derivedCapacity} bed${derivedCapacity === 1 ? "" : "s"}` : "Create room")}
           </button>
         </div>
       </form>

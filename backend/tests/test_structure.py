@@ -312,3 +312,105 @@ def test_create_without_layout_unchanged(client, auth_headers):
         f"/api/v1/properties/{data['id']}/structure", headers=auth_headers
     ).get_json()
     assert struct["meta"]["count"] == 0
+
+
+# ---------- Phase 3: bunk-aware bulk bed create ----------
+
+
+def test_bulk_three_singles_creates_three_beds(client, auth_headers):
+    prop = _make_property(client, auth_headers, "Bulk Single P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    room = _make_room(client, auth_headers, floor["id"], "101", capacity=3)
+    resp = client.post(
+        f"/api/v1/rooms/{room['id']}/beds/bulk",
+        headers=auth_headers,
+        json={"units": [{"type": "single"}, {"type": "single"}, {"type": "single"}]},
+    )
+    assert resp.status_code == 201, resp.get_data(as_text=True)
+    data = resp.get_json()["data"]
+    assert data["count"] == 3
+    numbers = [b["bed_number"] for b in data["beds"]]
+    types = [b["bed_type"] for b in data["beds"]]
+    assert numbers == ["1", "2", "3"]
+    assert types == ["single", "single", "single"]
+
+
+def test_bulk_two_bunks_creates_four_beds_lower_upper(client, auth_headers):
+    prop = _make_property(client, auth_headers, "Bulk Bunk P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    # capacity 4 to fit 2 bunk units (= 4 sleeping slots)
+    room = _make_room(client, auth_headers, floor["id"], "101", capacity=4)
+    resp = client.post(
+        f"/api/v1/rooms/{room['id']}/beds/bulk",
+        headers=auth_headers,
+        json={"units": [{"type": "bunk"}, {"type": "bunk"}]},
+    )
+    assert resp.status_code == 201, resp.get_data(as_text=True)
+    data = resp.get_json()["data"]
+    assert data["count"] == 4
+    numbers = [b["bed_number"] for b in data["beds"]]
+    types = [b["bed_type"] for b in data["beds"]]
+    assert numbers == ["1L", "1U", "2L", "2U"]
+    assert types == ["bunk_lower", "bunk_upper", "bunk_lower", "bunk_upper"]
+    # bed_codes carry the L/U suffix end-to-end
+    assert data["beds"][0]["bed_code"] == f"{prop['code']}-F1-R101-B1L"
+    assert data["beds"][1]["bed_code"] == f"{prop['code']}-F1-R101-B1U"
+
+
+def test_bulk_mixed_units(client, auth_headers):
+    prop = _make_property(client, auth_headers, "Bulk Mix P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    room = _make_room(client, auth_headers, floor["id"], "101", capacity=4)
+    resp = client.post(
+        f"/api/v1/rooms/{room['id']}/beds/bulk",
+        headers=auth_headers,
+        json={"units": [{"type": "single"}, {"type": "bunk"}, {"type": "single"}]},
+    )
+    assert resp.status_code == 201
+    data = resp.get_json()["data"]
+    assert [b["bed_number"] for b in data["beds"]] == ["1", "2L", "2U", "3"]
+    assert [b["bed_type"] for b in data["beds"]] == [
+        "single", "bunk_lower", "bunk_upper", "single",
+    ]
+
+
+def test_bulk_capacity_overflow_rejected(client, auth_headers):
+    prop = _make_property(client, auth_headers, "Bulk Cap P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    room = _make_room(client, auth_headers, floor["id"], "101", capacity=2)
+    # 2 bunk units = 4 beds, room capacity is 2 → reject
+    resp = client.post(
+        f"/api/v1/rooms/{room['id']}/beds/bulk",
+        headers=auth_headers,
+        json={"units": [{"type": "bunk"}, {"type": "bunk"}]},
+    )
+    assert resp.status_code == 400
+    assert "capacity" in resp.get_json()["message"].lower()
+    # Nothing partially created
+    listed = client.get(f"/api/v1/rooms/{room['id']}/beds", headers=auth_headers).get_json()["data"]
+    assert listed == []
+
+
+def test_bulk_rejects_unknown_type(client, auth_headers):
+    prop = _make_property(client, auth_headers, "Bulk Bad P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    room = _make_room(client, auth_headers, floor["id"], "101", capacity=2)
+    resp = client.post(
+        f"/api/v1/rooms/{room['id']}/beds/bulk",
+        headers=auth_headers,
+        json={"units": [{"type": "queen"}]},
+    )
+    assert resp.status_code == 400
+    assert "type" in resp.get_json()["message"].lower()
+
+
+def test_bulk_empty_list_rejected(client, auth_headers):
+    prop = _make_property(client, auth_headers, "Bulk Empty P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    room = _make_room(client, auth_headers, floor["id"], "101", capacity=2)
+    resp = client.post(
+        f"/api/v1/rooms/{room['id']}/beds/bulk",
+        headers=auth_headers,
+        json={"units": []},
+    )
+    assert resp.status_code == 400
