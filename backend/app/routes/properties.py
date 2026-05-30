@@ -479,6 +479,49 @@ def property_structure(prop_id: int):
         .order_by(Floor.floor_number.asc())
         .all()
     )
+
+    # Phase 4: enrich every occupied/reserved bed with its current employee
+    # block so the floor plan can render names + divisions without N+1.
+    # We collect employee ids across the whole property first, then load
+    # them with a single joinedload(division) query.
+    from sqlalchemy.orm import joinedload  # local import: only this endpoint needs it
+
+    bed_rows_by_room: dict[int, list[Bed]] = {}
+    employee_ids: set[int] = set()
+    for f in floors:
+        rooms = (
+            Room.query.filter_by(floor_id=f.id)
+            .order_by(Room.room_number.asc())
+            .all()
+        )
+        for r in rooms:
+            beds = (
+                Bed.query.filter_by(room_id=r.id)
+                .order_by(Bed.bed_number.asc())
+                .all()
+            )
+            bed_rows_by_room[r.id] = beds
+            for b in beds:
+                if b.current_employee_id is not None:
+                    employee_ids.add(b.current_employee_id)
+
+    emp_block: dict[int, dict] = {}
+    if employee_ids:
+        emps = (
+            Employee.query
+            .options(joinedload(Employee.division))
+            .filter(Employee.id.in_(employee_ids))
+            .all()
+        )
+        for e in emps:
+            emp_block[e.id] = {
+                "id": e.id,
+                "code": e.code,
+                "full_name": e.full_name,
+                "division_name": e.division.name if e.division else None,
+                "designation": e.designation,
+            }
+
     out = []
     for f in floors:
         rooms = (
@@ -488,13 +531,14 @@ def property_structure(prop_id: int):
         )
         room_list = []
         for r in rooms:
-            beds = (
-                Bed.query.filter_by(room_id=r.id)
-                .order_by(Bed.bed_number.asc())
-                .all()
-            )
+            beds = bed_rows_by_room.get(r.id, [])
+            bed_dicts = []
+            for b in beds:
+                bd = b.to_dict()
+                bd["current_employee"] = emp_block.get(b.current_employee_id) if b.current_employee_id else None
+                bed_dicts.append(bd)
             r_dict = r.to_dict()
-            r_dict["beds"] = [b.to_dict() for b in beds]
+            r_dict["beds"] = bed_dicts
             room_list.append(r_dict)
         f_dict = f.to_dict()
         f_dict["rooms"] = room_list

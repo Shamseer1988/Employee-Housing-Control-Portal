@@ -404,6 +404,65 @@ def test_bulk_rejects_unknown_type(client, auth_headers):
     assert "type" in resp.get_json()["message"].lower()
 
 
+def test_structure_includes_employee_block_for_occupied_bed(app, client, auth_headers):
+    """Phase 4: /structure returns current_employee for occupied beds."""
+    # Create a property with a single 1-bed room.
+    prop = _make_property(client, auth_headers, "Plan P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    room = _make_room(client, auth_headers, floor["id"], "101", capacity=1)
+    bed = client.post(
+        f"/api/v1/rooms/{room['id']}/beds", headers=auth_headers,
+        json={"bed_number": "1"},
+    ).get_json()["data"]
+
+    # Create an employee who needs accommodation.
+    emp_resp = client.post(
+        "/api/v1/employees", headers=auth_headers,
+        json={
+            "full_name": "Plan Tester",
+            "accommodation_required": True,
+            "status": "active",
+        },
+    )
+    assert emp_resp.status_code == 201, emp_resp.get_data(as_text=True)
+    emp = emp_resp.get_json()["data"]
+
+    # Post an assignment via the real endpoint so all side effects fire.
+    assign_resp = client.post(
+        "/api/v1/assignments", headers=auth_headers,
+        json={"employee_id": emp["id"], "bed_id": bed["id"]},
+    )
+    assert assign_resp.status_code == 201, assign_resp.get_data(as_text=True)
+
+    struct = client.get(
+        f"/api/v1/properties/{prop['id']}/structure", headers=auth_headers
+    ).get_json()
+    occupied_bed = struct["data"][0]["rooms"][0]["beds"][0]
+    assert occupied_bed["status"] == "occupied"
+    assert occupied_bed["current_employee"] is not None
+    assert occupied_bed["current_employee"]["id"] == emp["id"]
+    assert occupied_bed["current_employee"]["code"] == emp["code"]
+    assert occupied_bed["current_employee"]["full_name"] == "Plan Tester"
+    # division/designation are optional but the keys are always present
+    assert "division_name" in occupied_bed["current_employee"]
+    assert "designation" in occupied_bed["current_employee"]
+
+
+def test_structure_employee_block_null_for_empty_bed(client, auth_headers):
+    prop = _make_property(client, auth_headers, "Plan Empty P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    room = _make_room(client, auth_headers, floor["id"], "101", capacity=1)
+    client.post(
+        f"/api/v1/rooms/{room['id']}/beds", headers=auth_headers,
+        json={"bed_number": "1"},
+    )
+    struct = client.get(
+        f"/api/v1/properties/{prop['id']}/structure", headers=auth_headers
+    ).get_json()
+    bed = struct["data"][0]["rooms"][0]["beds"][0]
+    assert bed["current_employee"] is None
+
+
 def test_bulk_empty_list_rejected(client, auth_headers):
     prop = _make_property(client, auth_headers, "Bulk Empty P")
     floor = _make_floor(client, auth_headers, prop["id"], "1")

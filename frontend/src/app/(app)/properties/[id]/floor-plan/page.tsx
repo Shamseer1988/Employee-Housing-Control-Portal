@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { ArrowLeft, BedDouble } from "lucide-react";
@@ -7,21 +8,14 @@ import { api } from "@/lib/api";
 import { useRouteParams } from "@/lib/use-route-params";
 import { useEvents } from "@/lib/use-events";
 import { Skeleton, ErrorState, EmptyState } from "@/components/ui/states";
+import { Tooltip } from "@/components/ui/tooltip";
+import { BedActionModal, type FloorPlanBed, type FloorPlanRoom } from "@/components/floor-plan-bed-modal";
 
-type Bed = {
-  id: number;
-  bed_code: string;
-  bed_number: string | null;
-  status: string;          // empty | occupied | reserved | maintenance | blocked
-  current_employee?: { id: number; full_name: string } | null;
-};
-
-type Room = {
-  id: number;
-  room_number: string;
+type Room = FloorPlanRoom & {
   capacity: number | null;
   occupancy_status: string;
-  beds: Bed[];
+  bed_counts?: { total: number; occupied: number; empty: number; reserved: number; maintenance: number; blocked: number };
+  beds: FloorPlanBed[];
 };
 
 type Floor = {
@@ -32,8 +26,8 @@ type Floor = {
 
 type Property = { id: number; code: string; name: string };
 
-// Color tone per bed.status. Map both to a Tailwind background+border
-// class and to a legend label so the swatch and bed share one source.
+// Color tone per bed.status. The Tailwind class drives both the swatch
+// and the bed tile so the legend can never drift from the tiles.
 const TONES: Record<string, { cls: string; label: string }> = {
   occupied: { cls: "bg-emerald-500/20 border-emerald-500/60 text-emerald-700 dark:text-emerald-300", label: "Occupied" },
   empty: { cls: "bg-slate-400/10 border-slate-400/40 text-slate-600 dark:text-slate-300", label: "Empty" },
@@ -43,36 +37,87 @@ const TONES: Record<string, { cls: string; label: string }> = {
 };
 const DEFAULT_TONE = TONES.empty;
 
-function BedCell({ bed }: { bed: Bed }) {
+const ROOM_BADGE: Record<string, { cls: string; label: string }> = {
+  empty: { cls: "bg-slate-500/10 text-slate-600 dark:text-slate-300", label: "empty" },
+  partially_occupied: { cls: "bg-sky-500/10 text-sky-600 dark:text-sky-300", label: "partial" },
+  full: { cls: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300", label: "full" },
+  maintenance: { cls: "bg-amber-500/10 text-amber-600 dark:text-amber-300", label: "maintenance" },
+  blocked: { cls: "bg-rose-500/10 text-rose-600 dark:text-rose-300", label: "blocked" },
+};
+
+export function BedTile({
+  bed, onSelect,
+}: { bed: FloorPlanBed; onSelect: (b: FloorPlanBed) => void }) {
   const tone = TONES[bed.status] ?? DEFAULT_TONE;
+  const empCode = bed.current_employee?.code;
+  const label = empCode ?? (bed.bed_number ?? bed.bed_code.slice(-3));
   return (
-    <div
-      title={`${bed.bed_code} · ${bed.status}${bed.current_employee ? ` · ${bed.current_employee.full_name}` : ""}`}
-      className={
-        "aspect-square min-w-12 grid place-items-center rounded-md border font-mono text-[10px] " +
-        tone.cls
+    <Tooltip
+      content={
+        <div className="max-w-[18rem] space-y-1">
+          <div className="font-medium">
+            <span className="font-mono">{bed.bed_code}</span>
+            <span className="ml-2 text-[10px] uppercase tracking-wide opacity-80">{bed.status}</span>
+          </div>
+          <div className="text-[10px] opacity-80 capitalize">{bed.bed_type.replace("_", " ")}</div>
+          {bed.current_employee ? (
+            <div className="border-t border-border/60 pt-1 text-[11px] space-y-0.5">
+              <div className="font-medium">{bed.current_employee.full_name}</div>
+              <div className="font-mono opacity-70">{bed.current_employee.code}</div>
+              {bed.current_employee.designation && <div className="opacity-80">{bed.current_employee.designation}</div>}
+              {bed.current_employee.division_name && <div className="opacity-80">{bed.current_employee.division_name}</div>}
+            </div>
+          ) : (
+            <div className="text-[11px] opacity-70 italic">No occupant — click to assign</div>
+          )}
+        </div>
       }
     >
-      <BedDouble className="h-3.5 w-3.5 opacity-70" />
-      <div>{bed.bed_number ?? bed.bed_code.slice(-3)}</div>
-    </div>
+      <button
+        type="button"
+        onClick={() => onSelect(bed)}
+        aria-label={`Bed ${bed.bed_code} — ${bed.status}${bed.current_employee ? `, occupied by ${bed.current_employee.full_name}` : ""}`}
+        className={
+          "aspect-square min-w-[3.25rem] grid place-items-center rounded-md border font-mono text-[10px] " +
+          "cursor-pointer transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary/60 " +
+          tone.cls
+        }
+      >
+        <BedDouble className="h-3.5 w-3.5 opacity-70" />
+        <div className="truncate max-w-[3rem]">{label}</div>
+      </button>
+    </Tooltip>
   );
 }
 
-function RoomCard({ room }: { room: Room }) {
+function RoomCard({ room, onSelectBed }: { room: Room; onSelectBed: (b: FloorPlanBed, r: Room) => void }) {
+  const badge = ROOM_BADGE[room.occupancy_status] ?? ROOM_BADGE.empty;
+  const counts = room.bed_counts;
   return (
-    <div className="glass rounded-lg p-3 space-y-2">
+    <div className="glass rounded-lg p-3 space-y-2 print:break-inside-avoid">
       <div className="flex items-center justify-between text-xs">
         <div className="font-medium">Room {room.room_number}</div>
-        <div className="text-muted-foreground">
-          {room.beds.length}/{room.capacity ?? "?"} beds
+        <div className="flex items-center gap-2">
+          <span className={"rounded-full px-2 py-0.5 text-[10px] " + badge.cls}>{badge.label}</span>
+          <span className="text-muted-foreground">
+            {room.beds.length}/{room.capacity ?? "?"}
+          </span>
         </div>
       </div>
+      {counts && (
+        <div className="text-[10px] text-muted-foreground flex gap-2 flex-wrap">
+          {counts.occupied > 0 && <span>{counts.occupied} occ</span>}
+          {counts.empty > 0 && <span>{counts.empty} empty</span>}
+          {counts.reserved > 0 && <span>{counts.reserved} reserved</span>}
+          {counts.maintenance > 0 && <span>{counts.maintenance} maint</span>}
+          {counts.blocked > 0 && <span>{counts.blocked} blocked</span>}
+        </div>
+      )}
       <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-1.5">
         {room.beds.length === 0 ? (
           <div className="col-span-full text-[10px] text-muted-foreground italic">No beds defined</div>
         ) : (
-          room.beds.map((b) => <BedCell key={b.id} bed={b} />)
+          room.beds.map((b) => <BedTile key={b.id} bed={b} onSelect={(bed) => onSelectBed(bed, room)} />)
         )}
       </div>
     </div>
@@ -82,10 +127,8 @@ function RoomCard({ room }: { room: Room }) {
 export default function FloorPlanPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = useRouteParams(params);
   const qc = useQueryClient();
+  const [active, setActive] = useState<{ bed: FloorPlanBed; room: FloorPlanRoom } | null>(null);
 
-  // 8a realtime: any occupancy event triggers a re-fetch of this
-  // property's structure. The server filters by property when
-  // publishing eventually; for now we invalidate broadly.
   useEvents("occupancy", () => {
     qc.invalidateQueries({ queryKey: ["properties", "structure", id] });
   });
@@ -102,31 +145,38 @@ export default function FloorPlanPage({ params }: { params: Promise<{ id: string
     enabled: Boolean(id),
   });
 
+  const onSelectBed = (bed: FloorPlanBed, room: Room) => {
+    setActive({ bed, room });
+  };
+
+  const onChanged = () => {
+    qc.invalidateQueries({ queryKey: ["properties", "structure", id] });
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
+      <div className="print:hidden">
         <Link href={`/properties/${id}`} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3.5 w-3.5" /> Back to property
         </Link>
-        <div className="mt-2 flex items-end justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight">
-              Floor plan
-              {propQ.data && <span className="text-muted-foreground"> · {propQ.data.name}</span>}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Color-coded occupancy across every bed. Hover for the employee or status detail.
-            </p>
-          </div>
-          {/* Legend */}
-          <div className="flex flex-wrap items-center gap-2 text-[10px]">
-            {Object.entries(TONES).map(([k, t]) => (
-              <div key={k} className={"inline-flex items-center gap-1 rounded-md border px-2 py-0.5 " + t.cls}>
-                <span className="h-2 w-2 rounded-sm bg-current opacity-70" />
-                {t.label}
-              </div>
-            ))}
-          </div>
+      </div>
+      <div className="flex items-end justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight">
+            Floor plan
+            {propQ.data && <span className="text-muted-foreground"> · {propQ.data.name}</span>}
+          </h1>
+          <p className="text-sm text-muted-foreground print:hidden">
+            Hover a bed for occupant details; click to assign, view or take it out of service.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[10px]">
+          {Object.entries(TONES).map(([k, t]) => (
+            <div key={k} className={"inline-flex items-center gap-1 rounded-md border px-2 py-0.5 " + t.cls}>
+              <span className="h-2 w-2 rounded-sm bg-current opacity-70" />
+              {t.label}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -149,7 +199,7 @@ export default function FloorPlanPage({ params }: { params: Promise<{ id: string
         />
       )}
       {structureQ.data && structureQ.data.map((f) => (
-        <section key={f.id} className="space-y-3">
+        <section key={f.id} className="space-y-3 print:break-inside-avoid">
           <div className="flex items-baseline gap-3">
             <h2 className="text-lg font-medium">Floor {f.floor_number}</h2>
             <div className="text-xs text-muted-foreground">
@@ -161,12 +211,20 @@ export default function FloorPlanPage({ params }: { params: Promise<{ id: string
           {f.rooms.length === 0 ? (
             <div className="text-xs text-muted-foreground italic">No rooms on this floor.</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {f.rooms.map((r) => <RoomCard key={r.id} room={r} />)}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 print:grid-cols-2">
+              {f.rooms.map((r) => <RoomCard key={r.id} room={r} onSelectBed={onSelectBed} />)}
             </div>
           )}
         </section>
       ))}
+
+      <BedActionModal
+        open={Boolean(active)}
+        bed={active?.bed ?? null}
+        room={active?.room ?? null}
+        onClose={() => setActive(null)}
+        onChanged={onChanged}
+      />
     </div>
   );
 }
