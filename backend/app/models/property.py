@@ -38,9 +38,10 @@ class Property(BaseModel):
     landlord_id = Column(Integer, ForeignKey("landlords.id", ondelete="SET NULL"), nullable=True, index=True)
     multi_division_allowed = Column(Boolean, default=True, nullable=False)
 
-    total_floors = Column(Integer, nullable=True)
-    total_rooms = Column(Integer, nullable=True)
-    total_bed_capacity = Column(Integer, nullable=True)
+    # Phase 6: total_floors / total_rooms / total_bed_capacity were
+    # nullable, never written, and lived alongside the live aggregations
+    # in routes.properties._counts_for(). Dropped to avoid two sources of
+    # truth; the migrate-all CLI handles existing DBs.
 
     remarks = Column(Text, nullable=True)
 

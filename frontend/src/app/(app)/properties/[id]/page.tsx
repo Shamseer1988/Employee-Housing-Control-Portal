@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouteParams } from "@/lib/use-route-params";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Building2, Paperclip, FileText, Layers, BedDouble,
-  Calendar, AlertTriangle, Plus, Pencil, Wrench, Lock, Trash2,
+  Calendar, AlertTriangle, Plus, Pencil, Trash2, Hash,
   SlidersHorizontal,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -13,6 +14,7 @@ import { Can } from "@/components/can";
 import { Modal, Field, inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
 import { toast, errorMessage } from "@/components/ui/toast";
 import { AttachmentsTab } from "@/components/attachments-tab";
+import { BedsPanel } from "@/components/beds-panel";
 
 type Property = {
   id: number;
@@ -56,9 +58,16 @@ type Landlord = { id: number; code: string; name: string };
 
 type TabKey = "overview" | "agreement" | "floors" | "rooms" | "attachments";
 
+const VALID_TABS: TabKey[] = ["overview", "agreement", "floors", "rooms", "attachments"];
+
 export default function PropertyDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = useRouteParams(params);
-  const [tab, setTab] = useState<TabKey>("overview");
+  const searchParams = useSearchParams();
+  const initialTab = (() => {
+    const q = searchParams.get("tab") as TabKey | null;
+    return q && VALID_TABS.includes(q) ? q : "overview";
+  })();
+  const [tab, setTab] = useState<TabKey>(initialTab);
   const [property, setProperty] = useState<Property | null>(null);
   const [loading, setLoading] = useState(true);
   const [showStatusModal, setShowStatusModal] = useState(false);
@@ -162,38 +171,115 @@ function OverviewTab({ property }: { property: Property }) {
     </div>
   );
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div className="glass rounded-xl p-4 lg:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-4">
-        <Cell k="Type" v={property.property_type.replaceAll("_", " ")} />
-        <Cell k="Ownership" v={property.ownership_type.replaceAll("_", " ")} />
-        <Cell k="Managed by" v={property.managed_by} />
-        <Cell k="Building #" v={property.building_number} />
-        <Cell k="Zone" v={property.zone} />
-        <Cell k="Street" v={property.street} />
-        <Cell k="Area" v={property.area} />
-        <Cell k="City" v={property.city} />
-        <Cell k="Default division" v={property.default_division?.name} />
-        <Cell k="Floors" v={property.floors_count} />
-        <Cell k="Rooms" v={property.rooms_count} />
-        <Cell k="Beds" v={property.beds_count} />
-        {property.remarks && (
-          <div className="col-span-full">
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">Remarks</div>
-            <div className="text-sm">{property.remarks}</div>
-          </div>
-        )}
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="glass rounded-xl p-4 lg:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-4">
+          <Cell k="Type" v={property.property_type.replaceAll("_", " ")} />
+          <Cell k="Ownership" v={property.ownership_type.replaceAll("_", " ")} />
+          <Cell k="Managed by" v={property.managed_by} />
+          <Cell k="Building #" v={property.building_number} />
+          <Cell k="Zone" v={property.zone} />
+          <Cell k="Street" v={property.street} />
+          <Cell k="Area" v={property.area} />
+          <Cell k="City" v={property.city} />
+          <Cell k="Default division" v={property.default_division?.name} />
+          <Cell k="Floors" v={property.floors_count} />
+          <Cell k="Rooms" v={property.rooms_count} />
+          <Cell k="Beds" v={property.beds_count} />
+          {property.remarks && (
+            <div className="col-span-full">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">Remarks</div>
+              <div className="text-sm">{property.remarks}</div>
+            </div>
+          )}
+        </div>
+        <div className="glass rounded-xl p-4 space-y-3">
+          <div className="text-sm font-semibold">Active agreement</div>
+          {property.active_agreement ? (
+            <AgreementCard ag={property.active_agreement} />
+          ) : (
+            <div className="text-sm text-muted-foreground">No active agreement on file.</div>
+          )}
+          {property.map_link && (
+            <a href={property.map_link} target="_blank" rel="noreferrer"
+              className="text-xs text-primary underline">Open on Google Maps ↗</a>
+          )}
+        </div>
       </div>
-      <div className="glass rounded-xl p-4 space-y-3">
-        <div className="text-sm font-semibold">Active agreement</div>
-        {property.active_agreement ? (
-          <AgreementCard ag={property.active_agreement} />
-        ) : (
-          <div className="text-sm text-muted-foreground">No active agreement on file.</div>
-        )}
-        {property.map_link && (
-          <a href={property.map_link} target="_blank" rel="noreferrer"
-            className="text-xs text-primary underline">Open on Google Maps ↗</a>
-        )}
+      <OccupancySnapshot propertyId={property.id} />
+    </div>
+  );
+}
+
+type OccupancyPayload = {
+  beds: {
+    total: number; empty: number; occupied: number;
+    reserved: number; maintenance: number; blocked: number;
+    occupancy_percent: number;
+  };
+  rooms: {
+    total: number; empty: number; partially_occupied: number;
+    full: number; maintenance: number; blocked: number;
+  };
+};
+
+function OccupancySnapshot({ propertyId }: { propertyId: number }) {
+  const [data, setData] = useState<OccupancyPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.get(`/properties/${propertyId}/occupancy`)
+      .then((r) => { if (!cancelled) setData(r.data.data); })
+      .catch(() => { if (!cancelled) setData(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [propertyId]);
+
+  if (loading) {
+    return <div className="glass rounded-xl p-4 text-sm text-muted-foreground">Loading occupancy…</div>;
+  }
+  if (!data) {
+    return <div className="glass rounded-xl p-4 text-sm text-muted-foreground">No occupancy data yet.</div>;
+  }
+  const b = data.beds;
+  const r = data.rooms;
+  const counter = (label: string, value: number, tone: string) => (
+    <div className={"rounded-md border px-3 py-2 " + tone}>
+      <div className="text-lg font-semibold leading-none">{value}</div>
+      <div className="text-[10px] uppercase tracking-wide mt-1">{label}</div>
+    </div>
+  );
+  return (
+    <div className="glass rounded-xl p-4 space-y-3">
+      <div className="flex items-end justify-between flex-wrap gap-2">
+        <div>
+          <div className="text-sm font-semibold">Occupancy snapshot</div>
+          <div className="text-xs text-muted-foreground">
+            Live counts from <span className="font-mono">/properties/{propertyId}/occupancy</span>. Refreshes when bed/room status changes.
+          </div>
+        </div>
+        <div className="inline-flex items-baseline gap-2">
+          <span className="text-2xl font-semibold">{b.occupancy_percent}%</span>
+          <span className="text-xs text-muted-foreground">occupied of {b.total} bed{b.total === 1 ? "" : "s"}</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+        {counter("Occupied", b.occupied, "bg-emerald-500/5 border-emerald-500/30 text-emerald-700 dark:text-emerald-400")}
+        {counter("Empty", b.empty, "bg-muted/30 border-border")}
+        {counter("Reserved", b.reserved, "bg-sky-500/5 border-sky-500/30 text-sky-700 dark:text-sky-400")}
+        {counter("Maintenance", b.maintenance, "bg-amber-500/5 border-amber-500/30 text-amber-700 dark:text-amber-400")}
+        {counter("Blocked", b.blocked, "bg-rose-500/5 border-rose-500/30 text-rose-700 dark:text-rose-400")}
+        {counter("Total", b.total, "border-border bg-card/60")}
+      </div>
+      <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
+        <span>Rooms — {r.total} total</span>
+        {r.empty > 0 && <span>· {r.empty} empty</span>}
+        {r.partially_occupied > 0 && <span>· {r.partially_occupied} partial</span>}
+        {r.full > 0 && <span>· {r.full} full</span>}
+        {r.maintenance > 0 && <span>· {r.maintenance} maintenance</span>}
+        {r.blocked > 0 && <span>· {r.blocked} blocked</span>}
       </div>
     </div>
   );
@@ -399,26 +485,8 @@ type Room = {
   bed_counts: { total: number; occupied: number; empty: number; reserved: number; maintenance: number; blocked: number };
 };
 
-type Bed = {
-  id: number;
-  bed_number: string;
-  bed_code: string;
-  bed_type: string;
-  status: string;
-  remarks: string | null;
-};
-
 const ROOM_TYPES = ["shared", "single", "executive", "supervisor", "family", "temporary"];
 const GENDERS = ["any", "male", "female"];
-const BED_TYPES = ["single", "bunk_upper", "bunk_lower"];
-
-const BED_STATUS_TONE: Record<string, string> = {
-  empty: "bg-muted text-muted-foreground",
-  occupied: "bg-emerald-500/10 text-emerald-600",
-  reserved: "bg-sky-500/10 text-sky-600",
-  maintenance: "bg-amber-500/10 text-amber-600",
-  blocked: "bg-rose-500/10 text-rose-600",
-};
 
 const ROOM_STATUS_TONE: Record<string, string> = {
   empty: "bg-muted text-muted-foreground",
@@ -433,6 +501,7 @@ function FloorsTab({ propertyId }: { propertyId: number }) {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Floor | null>(null);
+  const [renumber, setRenumber] = useState<Floor | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -496,12 +565,23 @@ function FloorsTab({ propertyId }: { propertyId: number }) {
                   </span>
                 </td>
                 <td className="py-2 px-3 text-right">
+                  <Can perm="room.manage">
+                    <button onClick={() => setRenumber(f)}
+                      disabled={f.room_count === 0}
+                      title={f.room_count === 0 ? "No rooms to renumber" : "Renumber all rooms on this floor"}
+                      aria-label={`Renumber rooms on floor ${f.floor_number}`}
+                      className="h-8 w-8 grid place-items-center rounded-md hover:bg-accent inline-block disabled:opacity-40 disabled:cursor-not-allowed">
+                      <Hash className="h-3.5 w-3.5" />
+                    </button>
+                  </Can>
                   <Can perm="floor.manage">
                     <button onClick={() => { setEditing(f); setShowForm(true); }}
+                      aria-label={`Edit floor ${f.floor_number}`}
                       className="h-8 w-8 grid place-items-center rounded-md hover:bg-accent inline-block">
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button onClick={() => remove(f)}
+                      aria-label={`Delete floor ${f.floor_number}`}
                       className="h-8 w-8 grid place-items-center rounded-md hover:bg-destructive/10 text-destructive inline-block">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -517,7 +597,132 @@ function FloorsTab({ propertyId }: { propertyId: number }) {
         onClose={() => setShowForm(false)}
         onSaved={async () => { setShowForm(false); await load(); }}
       />
+      <RenumberRoomsDialog
+        propertyId={propertyId}
+        floor={renumber}
+        onClose={() => setRenumber(null)}
+        onDone={async () => { setRenumber(null); await load(); }}
+      />
     </div>
+  );
+}
+
+type RenumberDiff = { room_id: number; old_room_number: string; new_room_number: string };
+
+function RenumberRoomsDialog({ propertyId, floor, onClose, onDone }: {
+  propertyId: number;
+  floor: Floor | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [prefix, setPrefix] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [forceRequired, setForceRequired] = useState<{ occupied: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (floor) { setPrefix(""); setBusy(false); setForceRequired(null); setError(null); }
+  }, [floor]);
+
+  if (!floor) return <Modal open={false} onClose={onClose} title="">{null}</Modal>;
+
+  // Mirror the backend numbering algorithm so the preview matches.
+  const raw = floor.floor_number;
+  let floorSeq: string;
+  if (raw === "G" || (raw.startsWith("G") && raw.length > 1 && raw.slice(1).split("").every((c) => /[A-Za-z]/.test(c)))) {
+    floorSeq = "G";
+  } else {
+    const digits = raw.replace(/[^0-9]/g, "");
+    floorSeq = digits || raw;
+  }
+  const n = Math.max(0, floor.room_count);
+  const pad = Math.max(2, String(n).length);
+  const sample = Array.from({ length: Math.min(n, 4) }, (_, i) =>
+    `${prefix}${floorSeq}${String(i + 1).padStart(pad, "0")}`,
+  );
+
+  const submit = async (force: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const resp = await api.post(
+        `/properties/${propertyId}/floors/${floor.id}/renumber-rooms`,
+        { room_prefix: prefix, force },
+      );
+      const data = resp.data?.data as { renamed: number; diff?: RenumberDiff[] };
+      toast.success(
+        `${data.renamed} room${data.renamed === 1 ? "" : "s"} renumbered`,
+        data.diff && data.diff.length
+          ? `${data.diff[0].old_room_number} → ${data.diff[0].new_room_number}${data.diff.length > 1 ? `, +${data.diff.length - 1} more` : ""}`
+          : undefined,
+      );
+      onDone();
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { details?: { force_required?: boolean; occupied?: number }; message?: string } } };
+      if (e.response?.status === 409 && e.response.data?.details?.force_required) {
+        setForceRequired({ occupied: e.response.data.details.occupied ?? 0 });
+      } else {
+        setError(errorMessage(err));
+        toast.error("Renumber failed", errorMessage(err));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open={Boolean(floor)} onClose={onClose} title={`Renumber rooms — Floor ${floor.floor_number}`}>
+      <div className="space-y-4">
+        <div className="text-sm text-muted-foreground">
+          Rewrites every room number on this floor using
+          {" "}<span className="font-mono">{`{prefix}${floorSeq}{nn}`}</span>.
+          Bed codes recompute automatically.
+        </div>
+        <Field label="New room prefix">
+          <input
+            autoFocus
+            className={inputClass}
+            value={prefix}
+            onChange={(e) => { setPrefix(e.target.value); setForceRequired(null); }}
+            placeholder='e.g. "R" or leave empty'
+          />
+        </Field>
+        {n > 0 && (
+          <div className="text-xs rounded-md bg-background/40 border border-border px-3 py-2 font-mono">
+            Preview: {sample.join(", ")}{n > 4 ? `, …${prefix}${floorSeq}${String(n).padStart(pad, "0")}` : ""}
+          </div>
+        )}
+        {forceRequired && (
+          <div className="rounded-lg border-2 border-amber-500/60 bg-amber-500/5 p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="h-4 w-4" />
+              {forceRequired.occupied} bed{forceRequired.occupied === 1 ? "" : "s"} occupied on this floor
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Renaming rooms also rewrites every bed_code in them — confirm to apply the change anyway. The audit log will record the force flag.
+            </div>
+          </div>
+        )}
+        {error && <div className="text-xs text-destructive">{error}</div>}
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose}
+            className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">
+            Cancel
+          </button>
+          {forceRequired ? (
+            <button type="button" disabled={busy} onClick={() => submit(true)}
+              className="h-9 rounded-md bg-amber-600 px-4 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60">
+              {busy ? "Forcing…" : "Force renumber"}
+            </button>
+          ) : (
+            <button type="button" disabled={busy} onClick={() => submit(false)}
+              className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
+              {busy ? "Renumbering…" : `Renumber ${n} room${n === 1 ? "" : "s"}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -704,8 +909,12 @@ function MiniStat({ label, value }: { label: string; value: number }) {
   );
 }
 
-const ROOM_CAPACITY_OPTIONS = [1, 2, 3, 4, 5, 6];
-const ROOM_BED_TYPES = ["single", "bunk_upper", "bunk_lower"] as const;
+// Phase 3: rooms are described by physical bed UNITS, not sleeping slots.
+// A "single" unit = 1 sleeping slot (one bed). A "bunk" unit = 2 sleeping
+// slots (bunk_lower + bunk_upper). Sleeping capacity = units * slots/unit.
+type UnitType = "single" | "bunk";
+const MAX_BED_UNITS = 12;
+const MAX_EDIT_CAPACITY = 24;
 
 function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
   open: boolean; floorId: number | null; floors: Floor[]; editing: Room | null;
@@ -713,7 +922,10 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
 }) {
   const [form, setForm] = useState<Record<string, unknown>>({});
   const [autoCreateBeds, setAutoCreateBeds] = useState(true);
-  const [autoBedType, setAutoBedType] = useState<typeof ROOM_BED_TYPES[number]>("single");
+  // Phase 7 follow-up: heterogeneous unit list. Each entry is the type of
+  // one physical bed frame. Order matters — the backend numbers units
+  // 1..N in this order, so the sequence drives bed numbers.
+  const [unitList, setUnitList] = useState<UnitType[]>(["single", "single"]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -721,13 +933,27 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
       setForm(editing as unknown as Record<string, unknown>);
       setAutoCreateBeds(false);
     } else {
-      setForm({ room_type: "shared", capacity: 2, allowed_gender: "any", has_bathroom: false, has_ac: true });
+      setForm({ room_type: "shared", allowed_gender: "any", has_bathroom: false, has_ac: true });
       setAutoCreateBeds(true);
+      setUnitList(["single", "single"]);
     }
   }, [editing, open]);
 
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
-  const capacity = Math.max(1, Math.min(6, Number(form.capacity ?? 1)));
+
+  // Derived counts for new-room mode.
+  const singleCount = unitList.filter((t) => t === "single").length;
+  const bunkCount = unitList.filter((t) => t === "bunk").length;
+  const derivedCapacity = unitList.reduce((sum, t) => sum + (t === "bunk" ? 2 : 1), 0);
+  const minEditCapacity = Math.max(1, editing?.bed_counts.total ?? 1);
+
+  const addUnit = (t: UnitType) => {
+    if (unitList.length >= MAX_BED_UNITS) return;
+    setUnitList((u) => [...u, t]);
+  };
+  const removeUnit = (idx: number) => {
+    setUnitList((u) => u.filter((_, i) => i !== idx));
+  };
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -738,27 +964,30 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
         toast.success(`Room ${editing.room_number} updated`);
       } else {
         if (!floorId) throw new Error("No floor selected");
-        const resp = await api.post(`/floors/${floorId}/rooms`, form);
+        if (autoCreateBeds && unitList.length === 0) {
+          throw new Error("Add at least one bed unit, or uncheck Auto-create");
+        }
+        const capacityForRoom = autoCreateBeds ? derivedCapacity : Math.max(1, derivedCapacity);
+        const roomPayload = { ...form, capacity: capacityForRoom };
+        const resp = await api.post(`/floors/${floorId}/rooms`, roomPayload);
         const newRoom = resp.data?.data;
         let bedsCreated = 0;
         if (autoCreateBeds && newRoom?.id) {
-          for (let i = 1; i <= capacity; i++) {
-            try {
-              await api.post(`/rooms/${newRoom.id}/beds`, {
-                bed_number: String(i),
-                bed_type: autoBedType,
-              });
-              bedsCreated++;
-            } catch {
-              /* keep going; the user can re-add manually */
-            }
-          }
+          const unitsArr = unitList.map((type) => ({ type }));
+          const bulkResp = await api.post(`/rooms/${newRoom.id}/beds/bulk`, { units: unitsArr });
+          bedsCreated = bulkResp.data?.data?.count ?? 0;
         }
         const roomLabel = newRoom?.room_number ?? "";
-        toast.success(
-          `Room ${roomLabel} created`,
-          bedsCreated > 0 ? `${bedsCreated} bed${bedsCreated === 1 ? "" : "s"} added automatically.` : undefined,
-        );
+        const detail = bedsCreated > 0
+          ? `${bedsCreated} bed${bedsCreated === 1 ? "" : "s"} added` +
+            (bunkCount > 0 || singleCount > 0
+              ? ` (${[
+                  singleCount > 0 ? `${singleCount} single` : null,
+                  bunkCount > 0 ? `${bunkCount} bunk` : null,
+                ].filter(Boolean).join(" + ")})`
+              : "")
+          : undefined;
+        toast.success(`Room ${roomLabel} created`, detail);
       }
       onSaved();
     } catch (err: unknown) {
@@ -804,58 +1033,105 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
           </Field>
         </div>
 
-        {/* Capacity picker: 1-6 buttons */}
-        <Field label={`Capacity (${capacity} bed${capacity === 1 ? "" : "s"})`}>
-          <div className="flex flex-wrap gap-2">
-            {ROOM_CAPACITY_OPTIONS.map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => set("capacity", n)}
-                className={
-                  "h-9 w-12 rounded-md border text-sm font-medium transition-colors " +
-                  (n === capacity
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "border-border bg-card/60 hover:bg-accent")
-                }
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-        </Field>
+        {editing ? (
+          // Edit mode: bed structure already exists; just allow tweaking the
+          // total sleeping capacity within the no-shrink-below-bed-count guard.
+          <Field label="Sleeping capacity (people)">
+            <input
+              type="number"
+              min={minEditCapacity}
+              max={MAX_EDIT_CAPACITY}
+              className={inputClass}
+              value={Number(form.capacity ?? editing.capacity)}
+              onChange={(e) => set("capacity", Math.max(minEditCapacity, Number(e.target.value) || minEditCapacity))}
+            />
+            <div className="text-[11px] text-muted-foreground mt-1">
+              Can&apos;t be lower than the current bed count ({editing.bed_counts.total}). Use the room&apos;s bed list to add/remove beds.
+            </div>
+          </Field>
+        ) : (
+          <div className="rounded-lg border border-border bg-card/40 p-3 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <div className="text-sm font-medium">Bed frames in this room</div>
+                <div className="text-xs text-muted-foreground">
+                  Mix single and bunk frames freely. Sleeping capacity updates as you go.
+                </div>
+              </div>
+              <div className="text-sm">
+                <span className="font-semibold">{derivedCapacity}</span>
+                <span className="text-muted-foreground"> sleeping slot{derivedCapacity === 1 ? "" : "s"}</span>
+                {" · "}
+                <span className="font-mono text-xs">{unitList.length} frame{unitList.length === 1 ? "" : "s"}</span>
+              </div>
+            </div>
 
-        {!editing && (
-          <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
-            <label className="inline-flex items-start gap-2 text-sm cursor-pointer">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => addUnit("single")}
+                disabled={unitList.length >= MAX_BED_UNITS}
+                className="h-8 inline-flex items-center gap-1 rounded-md border border-border bg-card/60 px-3 text-xs hover:bg-accent disabled:opacity-50"
+              >
+                <Plus className="h-3 w-3" /> Add single
+              </button>
+              <button
+                type="button"
+                onClick={() => addUnit("bunk")}
+                disabled={unitList.length >= MAX_BED_UNITS}
+                className="h-8 inline-flex items-center gap-1 rounded-md border border-border bg-card/60 px-3 text-xs hover:bg-accent disabled:opacity-50"
+              >
+                <Plus className="h-3 w-3" /> Add bunk
+              </button>
+              {unitList.length >= MAX_BED_UNITS && (
+                <div className="text-xs text-muted-foreground">Cap: {MAX_BED_UNITS} frames per room</div>
+              )}
+            </div>
+
+            {unitList.length === 0 ? (
+              <div className="text-xs text-muted-foreground italic rounded-md border border-dashed border-border px-3 py-3 text-center">
+                No bed frames yet. Add some — or uncheck &ldquo;Auto-create&rdquo; below and add beds manually after creating the room.
+              </div>
+            ) : (
+              <ul className="space-y-1.5">
+                {unitList.map((t, idx) => (
+                  <li key={idx} className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-3 py-1.5 text-sm">
+                    <span className="inline-flex items-center gap-2">
+                      <span className="font-mono text-xs text-muted-foreground w-5 text-right">{idx + 1}.</span>
+                      <span className="capitalize">{t}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {t === "bunk"
+                          ? <>(2 beds — <span className="font-mono">{idx + 1}L</span>, <span className="font-mono">{idx + 1}U</span>)</>
+                          : <>(<span className="font-mono">{idx + 1}</span>)</>}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeUnit(idx)}
+                      aria-label={`Remove unit ${idx + 1}`}
+                      className="h-7 w-7 grid place-items-center rounded-md hover:bg-destructive/10 text-destructive"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <label className="inline-flex items-start gap-2 text-sm cursor-pointer pt-1 border-t border-border">
               <input
                 type="checkbox"
                 checked={autoCreateBeds}
                 onChange={(e) => setAutoCreateBeds(e.target.checked)}
-                className="mt-0.5"
+                className="mt-1"
               />
               <span>
-                <span className="font-medium">Automatically add {capacity} bed{capacity === 1 ? "" : "s"}</span>
+                <span className="font-medium">Auto-create the beds with the room</span>
                 <span className="block text-xs text-muted-foreground">
-                  Creates beds numbered 1 to {capacity} with codes like
-                  {" "}<span className="font-mono">PROP-FX-RY-B1…B{capacity}</span>. Skip and add them manually later if you prefer.
+                  Posts the unit list to <span className="font-mono">/rooms/&#123;id&#125;/beds/bulk</span> right after the room is created. Uncheck to create the room only.
                 </span>
               </span>
             </label>
-            {autoCreateBeds && (
-              <div className="flex items-center gap-2 pl-6">
-                <span className="text-xs text-muted-foreground">Bed type:</span>
-                <select
-                  className={selectClass + " w-auto"}
-                  value={autoBedType}
-                  onChange={(e) => setAutoBedType(e.target.value as typeof ROOM_BED_TYPES[number])}
-                >
-                  {ROOM_BED_TYPES.map((t) => (
-                    <option key={t} value={t}>{t.replace("_", " ")}</option>
-                  ))}
-                </select>
-              </div>
-            )}
           </div>
         )}
 
@@ -864,8 +1140,18 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
         </Field>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
-          <button type="submit" disabled={busy} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-            {busy ? "Saving…" : (editing ? "Save changes" : autoCreateBeds ? `Create room + ${capacity} bed${capacity === 1 ? "" : "s"}` : "Create room")}
+          <button
+            type="submit"
+            disabled={busy || (!editing && autoCreateBeds && unitList.length === 0)}
+            className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+          >
+            {busy
+              ? "Saving…"
+              : editing
+                ? "Save changes"
+                : autoCreateBeds
+                  ? `Create room + ${derivedCapacity} bed${derivedCapacity === 1 ? "" : "s"}`
+                  : "Create room"}
           </button>
         </div>
       </form>
@@ -873,141 +1159,8 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
   );
 }
 
-function BedsPanel({ room, onChanged, onEditRoom }: {
-  room: Room; onChanged: () => void; onEditRoom: () => void;
-}) {
-  const [beds, setBeds] = useState<Bed[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const [newNumber, setNewNumber] = useState("");
-  const [newType, setNewType] = useState("single");
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const resp = await api.get(`/rooms/${room.id}/beds`);
-      setBeds(resp.data.data);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { load(); }, [room.id]);  // eslint-disable-line react-hooks/exhaustive-deps
-
-  const create = async () => {
-    if (!newNumber.trim()) return;
-    setAdding(true);
-    try {
-      const resp = await api.post(`/rooms/${room.id}/beds`, { bed_number: newNumber.trim(), bed_type: newType });
-      toast.success(`Bed ${resp.data?.data?.bed_code ?? newNumber.trim()} added`);
-      setNewNumber("");
-      await load();
-      onChanged();
-    } catch (err: unknown) {
-      toast.error("Add bed failed", errorMessage(err));
-    } finally { setAdding(false); }
-  };
-
-  const setStatus = async (bed: Bed, status: string) => {
-    try {
-      await api.post(`/beds/${bed.id}/status`, { status });
-      toast.success(`Bed ${bed.bed_code ?? bed.bed_number} set to ${status}`);
-      await load();
-      onChanged();
-    } catch (err: unknown) {
-      toast.error("Status update failed", errorMessage(err));
-    }
-  };
-
-  const remove = async (bed: Bed) => {
-    if (!confirm(`Delete bed ${bed.bed_code}?`)) return;
-    try {
-      await api.delete(`/beds/${bed.id}`);
-      toast.success(`Bed ${bed.bed_code} deleted`);
-      await load();
-      onChanged();
-    } catch (err: unknown) {
-      toast.error("Delete failed", errorMessage(err));
-    }
-  };
-
-  return (
-    <div className="border-t border-border p-4 space-y-3 bg-card/30">
-      <div className="flex items-center justify-between">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">Beds</div>
-        <Can perm="room.manage">
-          <button onClick={onEditRoom} className="text-xs text-primary inline-flex items-center gap-1 hover:underline">
-            <Pencil className="h-3 w-3" /> Edit room
-          </button>
-        </Can>
-      </div>
-
-      {loading ? <div className="text-sm text-muted-foreground">Loading beds…</div> : (
-        beds.length === 0 ? <div className="text-sm text-muted-foreground">No beds yet.</div> : (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {beds.map((b) => (
-              <div key={b.id} className="rounded-md border border-border bg-card/60 p-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-mono text-xs">{b.bed_code}</div>
-                  <span className={"rounded-full px-2 py-0.5 text-[10px] " + BED_STATUS_TONE[b.status]}>
-                    {b.status}
-                  </span>
-                </div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-1">
-                  {b.bed_type.replace("_", " ")}
-                </div>
-                <Can perm="bed.manage">
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {b.status === "empty" && (
-                      <>
-                        <button onClick={() => setStatus(b, "maintenance")} className="text-[10px] inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 hover:bg-accent">
-                          <Wrench className="h-2.5 w-2.5" /> Maintain
-                        </button>
-                        <button onClick={() => setStatus(b, "blocked")} className="text-[10px] inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 hover:bg-accent">
-                          <Lock className="h-2.5 w-2.5" /> Block
-                        </button>
-                      </>
-                    )}
-                    {(b.status === "maintenance" || b.status === "blocked") && (
-                      <button onClick={() => setStatus(b, "empty")} className="text-[10px] rounded border border-border px-2 py-0.5 hover:bg-accent">
-                        Mark empty
-                      </button>
-                    )}
-                    {b.status !== "occupied" && (
-                      <button onClick={() => remove(b)} className="text-[10px] inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-destructive hover:bg-destructive/10">
-                        <Trash2 className="h-2.5 w-2.5" /> Delete
-                      </button>
-                    )}
-                  </div>
-                </Can>
-              </div>
-            ))}
-          </div>
-        )
-      )}
-
-      <Can perm="bed.manage">
-        <div className="flex items-center gap-2 pt-2 border-t border-border">
-          <input
-            placeholder={`Bed # (capacity ${room.bed_counts.total}/${room.capacity})`}
-            value={newNumber}
-            onChange={(e) => setNewNumber(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && create()}
-            className="h-8 flex-1 rounded-md border border-input bg-card/60 px-2 text-sm"
-          />
-          <select value={newType} onChange={(e) => setNewType(e.target.value)}
-            className="h-8 rounded-md border border-input bg-card/60 px-2 text-sm">
-            {BED_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
-          </select>
-          <button onClick={create} disabled={adding || !newNumber.trim() || room.bed_counts.total >= room.capacity}
-            className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-            {adding ? "…" : "Add bed"}
-          </button>
-        </div>
-      </Can>
-    </div>
-  );
-}
+// BedsPanel was extracted to components/beds-panel.tsx in Phase 6 so it
+// could be unit-tested in isolation. The import is at the top of this file.
 
 const STATUS_OPTIONS: { value: string; label: string; tone: string; help: string }[] = [
   { value: "active",      label: "Active",       tone: "border-emerald-500 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400", help: "Property is operational. New assignments are allowed." },

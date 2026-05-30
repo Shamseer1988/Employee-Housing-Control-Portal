@@ -21,26 +21,35 @@ export function EmployeePicker({
   filter,
   selected,
   onSelect,
+  params,
 }: {
   filter: (e: PickerEmployee) => boolean;
   selected: PickerEmployee | null;
   onSelect: (e: PickerEmployee) => void;
+  // Server-side query string. Defaults to `{accommodation: "yes"}` so the
+  // picker only pulls employees who actually need housing — every current
+  // caller (assign, transfer, vacate, cancel) wants that narrowing.
+  // Pass an explicit object (including {}) to override.
+  params?: Record<string, string>;
 }) {
   const [employees, setEmployees] = useState<PickerEmployee[]>([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // Serialise params for the dep array so inline object literals from
+  // callers don't trigger a refetch on every render.
+  const paramsKey = JSON.stringify(params ?? { accommodation: "yes" });
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const resp = await api.get("/employees");
+        const resp = await api.get("/employees", { params: JSON.parse(paramsKey) });
         setEmployees(resp.data.data);
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [paramsKey]);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();

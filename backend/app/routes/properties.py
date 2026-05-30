@@ -3,7 +3,7 @@ from flask import Blueprint, request
 
 from ..extensions import db
 from ..models import Property, PropertyAgreement, Landlord, Division, Floor, Room, Bed, Employee
-from ..services import audit, codes, reminders, occupancy
+from ..services import audit, codes, reminders, occupancy, layout as layout_service
 from ..utils.auth import require_permission, current_user
 from ..utils.responses import success_response, error_response
 
@@ -157,8 +157,38 @@ def create_property():
     db.session.flush()
     audit.record(user=actor, action="create", module="property",
                  entity_type="property", entity_id=prop.id, new_value=prop.to_dict())
+
+    layout_counts = None
+    layout = payload.get("layout")
+    if layout:
+        if not isinstance(layout, dict):
+            db.session.rollback()
+            return error_response("layout must be an object", 400)
+        try:
+            layout_counts = layout_service.generate_structure(
+                prop,
+                floors=int(layout.get("floors", 0) or 0),
+                rooms_per_floor=int(layout.get("rooms_per_floor", 0) or 0),
+                beds_per_room=int(layout.get("beds_per_room", 0) or 0),
+                floor_prefix=str(layout.get("floor_prefix") or "").strip(),
+                room_prefix=str(layout.get("room_prefix") or "").strip(),
+                ground_floor=bool(layout.get("ground_floor", False)),
+                default_room_type=str(layout.get("default_room_type") or "shared"),
+                default_bed_type=str(layout.get("default_bed_type") or "single"),
+                actor=actor,
+            )
+        except layout_service.LayoutError as e:
+            db.session.rollback()
+            return error_response(str(e), 400)
+        except (TypeError, ValueError) as e:
+            db.session.rollback()
+            return error_response(f"Invalid layout payload: {e}", 400)
+
     db.session.commit()
-    return success_response(data=prop.to_dict(), message="Property created", status=201)
+    data = prop.to_dict()
+    if layout_counts is not None:
+        data["layout_generated"] = layout_counts
+    return success_response(data=data, message="Property created", status=201)
 
 
 @properties_bp.put("/<int:prop_id>")
@@ -449,6 +479,49 @@ def property_structure(prop_id: int):
         .order_by(Floor.floor_number.asc())
         .all()
     )
+
+    # Phase 4: enrich every occupied/reserved bed with its current employee
+    # block so the floor plan can render names + divisions without N+1.
+    # We collect employee ids across the whole property first, then load
+    # them with a single joinedload(division) query.
+    from sqlalchemy.orm import joinedload  # local import: only this endpoint needs it
+
+    bed_rows_by_room: dict[int, list[Bed]] = {}
+    employee_ids: set[int] = set()
+    for f in floors:
+        rooms = (
+            Room.query.filter_by(floor_id=f.id)
+            .order_by(Room.room_number.asc())
+            .all()
+        )
+        for r in rooms:
+            beds = (
+                Bed.query.filter_by(room_id=r.id)
+                .order_by(Bed.bed_number.asc())
+                .all()
+            )
+            bed_rows_by_room[r.id] = beds
+            for b in beds:
+                if b.current_employee_id is not None:
+                    employee_ids.add(b.current_employee_id)
+
+    emp_block: dict[int, dict] = {}
+    if employee_ids:
+        emps = (
+            Employee.query
+            .options(joinedload(Employee.division))
+            .filter(Employee.id.in_(employee_ids))
+            .all()
+        )
+        for e in emps:
+            emp_block[e.id] = {
+                "id": e.id,
+                "code": e.code,
+                "full_name": e.full_name,
+                "division_name": e.division.name if e.division else None,
+                "designation": e.designation,
+            }
+
     out = []
     for f in floors:
         rooms = (
@@ -458,18 +531,151 @@ def property_structure(prop_id: int):
         )
         room_list = []
         for r in rooms:
-            beds = (
-                Bed.query.filter_by(room_id=r.id)
-                .order_by(Bed.bed_number.asc())
-                .all()
-            )
+            beds = bed_rows_by_room.get(r.id, [])
+            bed_dicts = []
+            for b in beds:
+                bd = b.to_dict()
+                bd["current_employee"] = emp_block.get(b.current_employee_id) if b.current_employee_id else None
+                bed_dicts.append(bd)
             r_dict = r.to_dict()
-            r_dict["beds"] = [b.to_dict() for b in beds]
+            r_dict["beds"] = bed_dicts
             room_list.append(r_dict)
         f_dict = f.to_dict()
         f_dict["rooms"] = room_list
         out.append(f_dict)
     return success_response(data=out, meta={"count": len(out)})
+
+
+@properties_bp.post("/<int:prop_id>/floors/<int:floor_id>/renumber-rooms")
+@require_permission("room.manage")
+def renumber_rooms(prop_id: int, floor_id: int):
+    """Phase 6: bulk-rename rooms on a floor using a new prefix.
+
+    Body: ``{"room_prefix": str, "force": bool=false}``.
+
+    The new room number for room index i (1..N within the floor) is
+    ``{room_prefix}{floor_seq}{nn}`` where ``floor_seq`` strips a single
+    optional letter prefix from the stored floor_number (so "F1" -> "1",
+    "G" -> "G"). Cascades to every bed's bed_code via occupancy.bed_code.
+
+    Refuses with 409 if any room on the floor has an occupied bed unless
+    ``force=true`` is supplied — caller takes responsibility. The rename
+    is two-phase: every row touched is first set to a guaranteed-unique
+    temp name, then to its final name, so the UNIQUE constraint never
+    fires on an intermediate state.
+    """
+    prop = Property.query.get_or_404(prop_id)
+    floor = Floor.query.filter_by(id=floor_id, property_id=prop.id).first_or_404()
+    payload = request.get_json(silent=True) or {}
+    new_prefix = str(payload.get("room_prefix") or "").strip()
+    force = bool(payload.get("force", False))
+
+    rooms = (
+        Room.query.filter_by(floor_id=floor.id)
+        .order_by(Room.room_number.asc())
+        .all()
+    )
+    if not rooms:
+        return success_response(
+            data={"renamed": 0, "rooms": []},
+            message="No rooms on this floor",
+        )
+
+    # Detect occupied beds across the floor before touching anything.
+    if not force:
+        occupied = (
+            db.session.query(db.func.count(Bed.id))
+            .filter(Bed.floor_id == floor.id, Bed.status == "occupied")
+            .scalar() or 0
+        )
+        if occupied:
+            return error_response(
+                f"Floor has {occupied} occupied bed(s). "
+                "Resolve the assignments first or re-send with force=true.",
+                status=409,
+                details={"occupied": occupied, "force_required": True},
+            )
+
+    # Determine floor_seq for room numbers (same rule as layout generator).
+    raw = floor.floor_number
+    # Strip a leading letter prefix to recover the numeric sequence; if
+    # the floor is "G" we keep it as-is.
+    floor_seq = raw if raw == "G" or raw.startswith("G") and len(raw) > 1 and raw[1:].isalpha() else (
+        "".join(ch for ch in raw if ch.isdigit()) or raw
+    )
+    if not floor_seq:
+        floor_seq = raw  # final fallback
+
+    room_pad = max(2, len(str(len(rooms))))
+    actor = current_user()
+
+    # Build rename map: (room, old_number, new_number).
+    renames: list[tuple[Room, str, str]] = []
+    for idx, room in enumerate(rooms, start=1):
+        new_no = f"{new_prefix}{floor_seq}{idx:0{room_pad}d}"
+        renames.append((room, room.room_number, new_no))
+
+    # No-op if nothing changes.
+    if all(old == new for _, old, new in renames):
+        return success_response(
+            data={"renamed": 0, "rooms": [r.to_dict() for r, _, _ in renames]},
+            message="Room numbers already match the requested prefix",
+        )
+
+    # Phase A: park every affected bed_code at a unique temp value so
+    # the room rename can't collide on the UNIQUE bed_code index.
+    for room, _, _ in renames:
+        for bed in room.beds or []:
+            bed.bed_code = f"__TMP_BED_{bed.id}__"
+    db.session.flush()
+
+    # Phase B: park every affected room_number at a unique temp value.
+    for room, _, _ in renames:
+        room.room_number = f"__TMP_ROOM_{room.id}__"
+    db.session.flush()
+
+    # Phase C: assign final room numbers + recomputed bed_codes.
+    old_to_new: list[dict] = []
+    for room, old_number, new_no in renames:
+        room.room_number = new_no
+        room.updated_by = actor.id
+        for bed in room.beds or []:
+            bed.bed_code = occupancy.bed_code(
+                prop.code, floor.floor_number, new_no, bed.bed_number,
+            )
+            bed.updated_by = actor.id
+        old_to_new.append({
+            "room_id": room.id,
+            "old_room_number": old_number,
+            "new_room_number": new_no,
+        })
+        audit.record(
+            user=actor, action="renumber", module="room",
+            entity_type="room", entity_id=room.id,
+            new_value={"room_number": new_no},
+            remarks=f"floor {floor.floor_number} prefix='{new_prefix}'",
+        )
+    db.session.flush()
+
+    audit.record(
+        user=actor, action="bulk_renumber", module="floor",
+        entity_type="floor", entity_id=floor.id,
+        new_value={
+            "renamed": len(renames),
+            "room_prefix": new_prefix,
+            "force": force,
+        },
+        remarks=f"Renumbered {len(renames)} rooms on floor {floor.floor_number}",
+    )
+    db.session.commit()
+    return success_response(
+        data={
+            "renamed": len(renames),
+            "rooms": [r.to_dict() for r, _, _ in renames],
+            "diff": old_to_new,
+        },
+        message=f"Renumbered {len(renames)} room(s) on floor {floor.floor_number}",
+    )
 
 
 @properties_bp.get("/agreements/expiring")

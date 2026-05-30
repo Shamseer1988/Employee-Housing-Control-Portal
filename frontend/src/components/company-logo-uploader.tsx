@@ -17,9 +17,10 @@ export function CompanyLogoUploader() {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      await api.post("/settings/company-logo", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      // No Content-Type override — axios sees FormData and sets
+      // "multipart/form-data; boundary=..." automatically. Forcing
+      // the header ourselves drops the boundary and the upload hangs.
+      await api.post("/settings/company-logo", fd);
       await refreshPublicSettings();
     } catch (err: unknown) {
       setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Upload failed");
@@ -46,7 +47,7 @@ export function CompanyLogoUploader() {
       <div>
         <div className="text-sm font-medium">Company logo</div>
         <div className="text-xs text-muted-foreground mt-0.5">
-          Square PNG / JPG / SVG, recommended at least 256×256. Shown in the
+          Square PNG / JPG / WebP, recommended at least 256×256. Shown in the
           sidebar header, login page, browser tab and PWA icon.
         </div>
         <div className="text-[10px] text-muted-foreground mt-1 font-mono">company.logo_url</div>
@@ -68,7 +69,7 @@ export function CompanyLogoUploader() {
                 {busy ? "Uploading…" : logoUrl ? "Replace" : "Upload"}
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  accept="image/png,image/jpeg,image/webp"
                   className="hidden"
                   onChange={(e) => {
                     const f = e.target.files?.[0];

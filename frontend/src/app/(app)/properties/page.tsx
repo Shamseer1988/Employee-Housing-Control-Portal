@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Plus, Building2, MapPin, AlertTriangle } from "lucide-react";
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
@@ -197,28 +198,108 @@ function Stat({ label, value }: { label: string; value: number | null }) {
 
 type LandlordOption = { id: number; code: string; name: string };
 
+const ROOM_TYPE_OPTIONS = ["shared", "single", "executive", "supervisor", "family", "temporary"];
+const BED_TYPE_OPTIONS = ["single", "bunk_lower", "bunk_upper"];
+
+const MAX_FLOORS = 50;
+const MAX_RPF = 100;
+const MAX_BPR = 12;
+
+type LayoutSpec = {
+  floors: number;
+  rooms_per_floor: number;
+  beds_per_room: number;
+  floor_prefix: string;
+  room_prefix: string;
+  ground_floor: boolean;
+  default_room_type: string;
+  default_bed_type: string;
+};
+
+const DEFAULT_LAYOUT: LayoutSpec = {
+  floors: 1,
+  rooms_per_floor: 4,
+  beds_per_room: 2,
+  floor_prefix: "",
+  room_prefix: "",
+  ground_floor: false,
+  default_room_type: "shared",
+  default_bed_type: "single",
+};
+
+function clamp(n: number, lo: number, hi: number) {
+  if (Number.isNaN(n)) return lo;
+  return Math.max(lo, Math.min(hi, Math.floor(n)));
+}
+
 function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+  const router = useRouter();
   const [form, setForm] = useState<Record<string, unknown>>({ property_type: "full_building", ownership_type: "rented" });
   const [landlords, setLandlords] = useState<LandlordOption[]>([]);
   const [busy, setBusy] = useState(false);
+  const [genLayout, setGenLayout] = useState(true);
+  const [layout, setLayout] = useState<LayoutSpec>(DEFAULT_LAYOUT);
 
   useEffect(() => {
     if (open) {
       setForm({ property_type: "full_building", ownership_type: "rented" });
+      setGenLayout(true);
+      setLayout(DEFAULT_LAYOUT);
       api.get("/landlords").then((r) => setLandlords(r.data.data)).catch(() => setLandlords([]));
     }
   }, [open]);
 
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
+  const setL = <K extends keyof LayoutSpec>(k: K, v: LayoutSpec[K]) => setLayout((l) => ({ ...l, [k]: v }));
+
+  const safe = useMemo(() => ({
+    floors: clamp(layout.floors, 1, MAX_FLOORS),
+    rooms_per_floor: clamp(layout.rooms_per_floor, 1, MAX_RPF),
+    beds_per_room: clamp(layout.beds_per_room, 1, MAX_BPR),
+  }), [layout.floors, layout.rooms_per_floor, layout.beds_per_room]);
+
+  const totals = useMemo(() => ({
+    floors: safe.floors,
+    rooms: safe.floors * safe.rooms_per_floor,
+    beds: safe.floors * safe.rooms_per_floor * safe.beds_per_room,
+  }), [safe]);
+
+  const sample = useMemo(() => {
+    const firstFloorStored = layout.ground_floor ? `${layout.floor_prefix}G` : `${layout.floor_prefix}1`;
+    const floorSeq = layout.ground_floor ? "G" : "1";
+    const pad = Math.max(2, String(safe.rooms_per_floor).length);
+    const firstRoom = `${layout.room_prefix}${floorSeq}${String(1).padStart(pad, "0")}`;
+    // The bed_code helper on the backend always prefixes with "F" / "R" / "B".
+    return `<NEW-CODE>-F${firstFloorStored}-R${firstRoom}-B1`;
+  }, [layout.ground_floor, layout.floor_prefix, layout.room_prefix, safe.rooms_per_floor]);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
-      const resp = await api.post("/properties", form);
-      const code = resp.data?.data?.code ?? "";
-      toast.success(`Property ${code} created`);
+      const payload: Record<string, unknown> = { ...form };
+      if (genLayout) {
+        payload.layout = {
+          floors: safe.floors,
+          rooms_per_floor: safe.rooms_per_floor,
+          beds_per_room: safe.beds_per_room,
+          floor_prefix: layout.floor_prefix,
+          room_prefix: layout.room_prefix,
+          ground_floor: layout.ground_floor,
+          default_room_type: layout.default_room_type,
+          default_bed_type: layout.default_bed_type,
+        };
+      }
+      const resp = await api.post("/properties", payload);
+      const created = resp.data?.data as { id?: number; code?: string; layout_generated?: { floors: number; rooms: number; beds: number } } | undefined;
+      const detail = created?.layout_generated
+        ? `${created.layout_generated.floors} floor${created.layout_generated.floors === 1 ? "" : "s"} · ${created.layout_generated.rooms} rooms · ${created.layout_generated.beds} beds`
+        : undefined;
+      toast.success(`Property ${created?.code ?? ""} created`, detail);
       onSaved();
+      if (genLayout && created?.id) {
+        router.push(`/properties/${created.id}?tab=rooms`);
+      }
     } catch (err: unknown) {
       toast.error("Save failed", errorMessage(err));
     } finally { setBusy(false); }
@@ -258,13 +339,102 @@ function PropertyDialog({ open, onClose, onSaved }: { open: boolean; onClose: ()
           <Field label="Managed by"><input className={inputClass} onChange={(e) => set("managed_by", e.target.value)} /></Field>
         </div>
         <Field label="Remarks"><textarea className={textareaClass} onChange={(e) => set("remarks", e.target.value)} /></Field>
-        <div className="text-xs text-muted-foreground">
-          Floors, rooms and beds are added from the property detail page after creation. The card counts update live as you add them.
+
+        {/* Structure generator — defaults to on; uncheck to skip. */}
+        <div className="rounded-lg border border-border bg-card/40 p-3 space-y-3">
+          <label className="inline-flex items-start gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={genLayout}
+              onChange={(e) => setGenLayout(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="font-medium">Generate floors, rooms and beds now</span>
+              <span className="block text-xs text-muted-foreground">
+                Builds the whole structure in one shot. You can still add, edit or remove floors / rooms / beds afterwards.
+              </span>
+            </span>
+          </label>
+
+          {genLayout && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <Field label={`Number of floors (1-${MAX_FLOORS})`}>
+                  <input
+                    type="number" min={1} max={MAX_FLOORS}
+                    className={inputClass} value={layout.floors}
+                    onChange={(e) => setL("floors", Number(e.target.value))}
+                  />
+                </Field>
+                <Field label={`Rooms per floor (1-${MAX_RPF})`}>
+                  <input
+                    type="number" min={1} max={MAX_RPF}
+                    className={inputClass} value={layout.rooms_per_floor}
+                    onChange={(e) => setL("rooms_per_floor", Number(e.target.value))}
+                  />
+                </Field>
+                <Field label={`Beds per room (1-${MAX_BPR})`}>
+                  <input
+                    type="number" min={1} max={MAX_BPR}
+                    className={inputClass} value={layout.beds_per_room}
+                    onChange={(e) => setL("beds_per_room", Number(e.target.value))}
+                  />
+                </Field>
+                <Field label="Floor number prefix">
+                  <input
+                    className={inputClass} value={layout.floor_prefix}
+                    onChange={(e) => setL("floor_prefix", e.target.value)}
+                    placeholder='e.g. "F" or leave empty'
+                  />
+                </Field>
+                <Field label="Room number prefix">
+                  <input
+                    className={inputClass} value={layout.room_prefix}
+                    onChange={(e) => setL("room_prefix", e.target.value)}
+                    placeholder="usually empty"
+                  />
+                </Field>
+                <Field label="Include ground floor">
+                  <label className="flex items-center gap-2 h-9">
+                    <input
+                      type="checkbox" checked={layout.ground_floor}
+                      onChange={(e) => setL("ground_floor", e.target.checked)}
+                    />
+                    <span className="text-sm">First floor becomes “G”</span>
+                  </label>
+                </Field>
+                <Field label="Default room type">
+                  <select
+                    className={selectClass} value={layout.default_room_type}
+                    onChange={(e) => setL("default_room_type", e.target.value)}
+                  >
+                    {ROOM_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </Field>
+                <Field label="Default bed type">
+                  <select
+                    className={selectClass} value={layout.default_bed_type}
+                    onChange={(e) => setL("default_bed_type", e.target.value)}
+                  >
+                    {BED_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <div className="text-xs rounded-md bg-background/40 border border-border px-3 py-2 font-mono">
+                Will create <span className="font-semibold">{totals.floors}</span> floor{totals.floors === 1 ? "" : "s"},
+                {" "}<span className="font-semibold">{totals.rooms}</span> rooms,
+                {" "}<span className="font-semibold">{totals.beds}</span> beds.
+                {" "}First bed code: <span className="text-primary">{sample}</span>
+              </div>
+            </>
+          )}
         </div>
+
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
           <button type="submit" disabled={busy} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-            {busy ? "Saving…" : "Create"}
+            {busy ? "Saving…" : genLayout ? `Create + ${totals.rooms} rooms` : "Create"}
           </button>
         </div>
       </form>

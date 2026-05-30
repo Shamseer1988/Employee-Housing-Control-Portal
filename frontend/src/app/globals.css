@@ -131,3 +131,65 @@
     box-shadow: none !important;
   }
 }
+
+/*
+ * Floor-plan print sheet
+ * ----------------------
+ * Only loaded when the user prints the /properties/{id}/floor-plan page.
+ * Keys on the `.floorplan-print-root` outer wrapper and the
+ * `.floorplan-page` class added to each <section>. Layered after the
+ * generic .glass override above so it wins on specificity.
+ */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 1.2cm 1.2cm 1.5cm 1.2cm;
+  }
+
+  .floorplan-print-root,
+  .floorplan-print-root * {
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+
+  /* Keep colored bed tiles meaningful — re-apply their semantic
+     backgrounds after the white-everything wipe above. */
+  .floorplan-print-root [class*="bg-emerald-"] {
+    background-color: rgba(16, 185, 129, 0.20) !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .floorplan-print-root [class*="bg-sky-"] {
+    background-color: rgba(14, 165, 233, 0.20) !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .floorplan-print-root [class*="bg-amber-"] {
+    background-color: rgba(245, 158, 11, 0.20) !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .floorplan-print-root [class*="bg-rose-"] {
+    background-color: rgba(244, 63, 94, 0.20) !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .floorplan-print-root [class*="bg-slate-"] {
+    background-color: rgba(100, 116, 139, 0.10) !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* One floor per printed page: break before every floor section except
+     the first one in the document. */
+  .floorplan-print-root .floorplan-page {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .floorplan-print-root .floorplan-page:not(:first-of-type) {
+    break-before: page;
+    page-break-before: always;
+  }
+}
