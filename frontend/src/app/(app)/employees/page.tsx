@@ -398,7 +398,10 @@ function ImportDialog({ open, onClose, onImported }: { open: boolean; onClose: (
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const resp = await api.post("/employees/import", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      // No Content-Type override — axios fills in the multipart
+      // boundary itself when the payload is FormData. Setting it
+      // manually drops the boundary and breaks the upload.
+      const resp = await api.post("/employees/import", fd);
       setResult({
         status: resp.data.data.batch.status,
         success_rows: resp.data.data.batch.success_rows,

@@ -44,7 +44,10 @@ export function AttachmentsTab({ entityType, entityId }: {
       fd.append("entity_type", entityType);
       fd.append("entity_id", String(entityId));
       if (category) fd.append("category", category);
-      await api.post("/attachments", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      // No Content-Type header — axios sets multipart/form-data WITH
+      // the boundary when it sees a FormData payload. Overriding it
+      // ourselves omits the boundary and the upload silently fails.
+      await api.post("/attachments", fd);
       await load();
     } finally {
       setUploading(false);

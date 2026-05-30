@@ -58,7 +58,10 @@ export default function BulkMovementsPage() {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const resp = await api.post("/bulk-movements/import", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      // No Content-Type override — axios sets multipart/form-data
+      // with the boundary when it sees a FormData payload. Forcing
+      // the header drops the boundary and the upload fails.
+      const resp = await api.post("/bulk-movements/import", fd);
       const data = resp.data.data as Result;
       setResult(data);
       if (data.batch.status === "completed") {
