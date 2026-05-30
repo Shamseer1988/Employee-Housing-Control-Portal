@@ -1,0 +1,56 @@
+# Dependabot — keeps every ecosystem we ship moving on a weekly cadence.
+# Grouped updates keep noisy minor/patch bumps in a single PR per
+# ecosystem while major bumps still surface individually for review.
+
+version: 2
+updates:
+  # Python backend deps.
+  - package-ecosystem: pip
+    directory: "/backend"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "backend"]
+    groups:
+      backend-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # Node frontend deps.
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "frontend"]
+    groups:
+      frontend-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # Backend Dockerfile base image (python:3.11-slim) and nginx base.
+  - package-ecosystem: docker
+    directory: "/backend"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "docker"]
+  - package-ecosystem: docker
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "docker"]
+  - package-ecosystem: docker
+    directory: "/deploy"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "docker"]
+
+  # GitHub Actions pinned in .github/workflows/*.yml.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "ci"]
+    groups:
+      actions-minor-and-patch:
+        update-types: ["minor", "patch"]

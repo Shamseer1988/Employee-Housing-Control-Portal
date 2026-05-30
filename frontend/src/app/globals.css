@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 30% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 9%;
+    --card-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 33% 20%;
+    --input: 217 33% 20%;
+    --ring: 224 76% 48%;
+  }
+
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(at 0% 0%, hsl(var(--primary) / 0.10) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, hsl(var(--accent) / 0.08) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-card/60 backdrop-blur-xl border border-white/10 shadow-lg;
+  }
+  .glass-strong {
+    @apply bg-card/80 backdrop-blur-2xl border border-white/10 shadow-xl;
+  }
+
+  /* Disable glassmorphism: solid card, no blur, neutral border. */
+  html[data-glass="off"] .glass,
+  html[data-glass="off"] .glass-strong {
+    background-color: hsl(var(--card));
+    backdrop-filter: none;
+    border-color: hsl(var(--border));
+  }
+
+  /* Compact mode tightens vertical rhythm and main padding. */
+  html[data-compact="on"] main {
+    padding: 0.75rem !important;
+  }
+  html[data-compact="on"] .glass,
+  html[data-compact="on"] .glass-strong {
+    padding: 0.75rem;
+  }
+  html[data-compact="on"] table th,
+  html[data-compact="on"] table td {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+
+  /* Table density: row vertical padding. */
+  html[data-density="compact"] table th,
+  html[data-density="compact"] table td {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+  html[data-density="spacious"] table th,
+  html[data-density="spacious"] table td {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  /* Skeletons */
+  .skeleton {
+    @apply animate-pulse bg-muted rounded;
+  }
+
+  /* Mobile-friendly tables: enable horizontal scroll inside cards
+     rather than stretching the page layout. */
+  .glass table {
+    min-width: 480px;
+  }
+  @media (max-width: 640px) {
+    .glass {
+      padding: 0.75rem !important;
+    }
+    main h1 { font-size: 1.5rem !important; }
+  }
+
+  /* Accessibility: keep focus rings visible everywhere. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+@media print {
+  html[data-glass] .glass,
+  html[data-glass] .glass-strong {
+    background: white !important;
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
+  }
+}

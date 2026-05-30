@@ -1,0 +1,155 @@
+name: pug-accommodation
+
+# =============================================================================
+# LOCAL DEVELOPMENT compose.
+#
+# Plain HTTP on port 80, no TLS, no Cloudflare allowlist. Boots clean on
+# any laptop with `docker compose up -d`.
+#
+# For production (Cloudflare Origin Cert + nginx TLS + edge allowlist) use:
+#     docker compose -f docker-compose.prod.yml up -d --build
+# =============================================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
+      POSTGRES_USER: ${POSTGRES_USER:-pug}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug-local-pass}
+    volumes:
+      - pug_pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    ports:
+      # Exposed locally for psql / pgAdmin during development. Comment
+      # out if you don't want Postgres on the host.
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pug} -d ${POSTGRES_DB:-pug_accommodation}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # development mode: skips the prod boot guard (dev secrets OK,
+      # CORS '*' OK, /docs available at /docs).
+      FLASK_ENV: development
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug-local-pass}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-padded-to-32-chars}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-padded-to-32-chars}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      UPLOAD_FOLDER: /data/uploads
+      SUPERUSER_USERNAME: ${SUPERUSER_USERNAME:-admin}
+      SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-admin@pugroup.local}
+      SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD:-ChangeMe123!}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      ENABLE_API_DOCS: "1"
+    volumes:
+      - pug_uploads:/data/uploads
+    ports:
+      # Exposed so you can hit the API directly during dev without nginx.
+      - "${BACKEND_PORT:-5000}:5000"
+    # Boot sequence: ensure schema is current, seed (idempotent), then serve.
+    # `migrate-all` adds any missing tables/columns from older Phase 1-8
+    # deltas without disturbing the rest of the data.
+    command: >
+      sh -c "flask --app wsgi init-db &&
+             flask --app wsgi migrate-all &&
+             flask --app wsgi seed &&
+             gunicorn -c gunicorn.conf.py wsgi:app"
+
+  worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      FLASK_ENV: development
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug-local-pass}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-padded-to-32-chars}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-padded-to-32-chars}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      UPLOAD_FOLDER: /data/uploads
+    volumes:
+      - pug_uploads:/data/uploads
+    # celery_worker.py imports app.tasks so all @celery.task functions
+    # register against the worker. Without that import path, the worker
+    # boots with zero tasks.
+    command: ["celery", "-A", "celery_worker.celery", "worker", "--loglevel=info"]
+
+  beat:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      FLASK_ENV: development
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug-local-pass}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-padded-to-32-chars}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-padded-to-32-chars}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    command: ["celery", "-A", "celery_worker.celery", "beat", "--loglevel=info"]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Relative API URL — bundle calls /api/* on whatever host
+        # nginx is reachable at.
+        NEXT_PUBLIC_API_URL: ""
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: production
+    ports:
+      # Exposed for direct dev hits if you want to bypass nginx.
+      - "${FRONTEND_PORT:-3000}:3000"
+
+  nginx:
+    build:
+      context: ./deploy
+      dockerfile: Dockerfile.nginx
+      args:
+        NGINX_CONF: nginx.dev.conf
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "${HTTP_PORT:-80}:80"
+
+volumes:
+  pug_pgdata:
+  pug_uploads:

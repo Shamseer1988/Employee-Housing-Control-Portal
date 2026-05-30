@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PUG Accommodation Portal — Windows Local Setup</title>
+<style>
+  :root {
+    --bg: #0b1220;
+    --panel: #111a2e;
+    --panel-2: #18233d;
+    --border: #243151;
+    --text: #e6ecf5;
+    --muted: #8ea0c2;
+    --accent: #6aa1ff;
+    --accent-2: #4ade80;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: linear-gradient(180deg, #0a1020 0%, #0b1220 100%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .wrap {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 32px;
+  }
+  header .badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #2563eb, #4ade80);
+    color: white;
+    border-radius: 999px;
+    font-size: 11px;
+    padding: 4px 10px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  h1 {
+    font-size: 32px;
+    margin: 12px 0 6px;
+    letter-spacing: -0.5px;
+  }
+  h1 small {
+    display: block;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 400;
+    margin-top: 6px;
+  }
+  h2 {
+    margin-top: 48px;
+    font-size: 22px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  h2 .num {
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 700;
+  }
+  h3 {
+    margin-top: 28px;
+    font-size: 17px;
+    color: var(--text);
+  }
+  p { color: var(--text); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ul, ol { padding-left: 22px; }
+  li { margin-bottom: 6px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: rgba(106, 161, 255, 0.12);
+    border: 1px solid rgba(106, 161, 255, 0.25);
+    color: #c2d8ff;
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  pre {
+    position: relative;
+    margin: 12px 0;
+    background: #060b18;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+  }
+  pre code {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: #d5e2ff;
+    font-size: 13px;
+    line-height: 1.55;
+    display: block;
+    white-space: pre;
+  }
+  pre .prompt { color: #6aa1ff; font-weight: bold; user-select: none; }
+  pre .cmd    { color: #e6ecf5; }
+  pre .arg    { color: #c0e8ff; }
+  pre .str    { color: #b6f0a3; }
+  pre .num    { color: #fbbf24; }
+  pre .kw     { color: #c084fc; }
+  pre .com    { color: #6b7e9e; font-style: italic; }
+  pre .file   { color: #fbbf24; }
+
+  .shell-label {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    background: rgba(255,255,255,0.04);
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: rgba(106, 161, 255, 0.08);
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin: 16px 0;
+  }
+  .callout.warn {
+    border-color: var(--warning);
+    background: rgba(251, 191, 36, 0.08);
+  }
+  .callout.danger {
+    border-color: var(--danger);
+    background: rgba(248, 113, 113, 0.08);
+  }
+  .callout.ok {
+    border-color: var(--accent-2);
+    background: rgba(74, 222, 128, 0.08);
+  }
+  .callout .tag {
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .callout.warn .tag { color: var(--warning); }
+  .callout.danger .tag { color: var(--danger); }
+  .callout.ok .tag { color: var(--accent-2); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+  }
+  td code { white-space: nowrap; }
+
+  .checklist li {
+    list-style: none;
+    position: relative;
+    padding-left: 28px;
+  }
+  .checklist li::before {
+    content: "✓";
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: var(--accent-2);
+    font-weight: bold;
+  }
+
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 24px;
+    margin-bottom: 32px;
+  }
+  .toc h4 {
+    margin: 0 0 8px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+  }
+  .toc ol { margin: 0; }
+  .toc a { color: var(--text); }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: #e6ecf5;
+    background: #1d2942;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.4);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="badge">Windows · Local Development</span>
+  <h1>PUG Accommodation Portal — Setup Guide
+    <small>End-to-end instructions: from <code>git clone</code> to logging into the running portal at <code>http://localhost:3000</code>.</small>
+  </h1>
+</header>
+
+<div class="callout ok" style="margin-bottom: 32px;">
+  <span class="tag">Two ways to run this on Windows</span>
+  <p style="margin: 4px 0 8px;"><strong>Option A — Docker Desktop (fastest path).</strong> One install, one command, the same images you'd run in production. Skip straight to <a href="#docker"><strong>section 0: Docker Compose</strong></a>. ~5 minutes to first login.</p>
+  <p style="margin: 0;"><strong>Option B — Native install.</strong> Best for active coding (Flask + Next dev servers auto-reload on save). Follow sections 01–10 below.</p>
+</div>
+
+<div class="toc">
+  <h4>Table of contents</h4>
+  <ol start="0">
+    <li><a href="#docker"><strong>Docker Compose path</strong> (single-installer alternative)</a></li>
+    <li><a href="#prereqs">Prerequisites & installers</a></li>
+    <li><a href="#verify">Verify every tool is installed</a></li>
+    <li><a href="#clone">Clone the repository</a></li>
+    <li><a href="#database">Create the PostgreSQL database &amp; user</a></li>
+    <li><a href="#backend">Backend setup (Flask)</a></li>
+    <li><a href="#frontend">Frontend setup (Next.js)</a></li>
+    <li><a href="#login">First login &amp; smoke test</a></li>
+    <li><a href="#tests">Run the test suite (optional)</a></li>
+    <li><a href="#daily">Daily workflow</a></li>
+    <li><a href="#trouble">Troubleshooting</a></li>
+  </ol>
+</div>
+
+<!-- =========================================================== -->
+<h2 id="docker"><span class="num">00</span> Docker Compose path (recommended for demos)</h2>
+<p>If all you want is to <em>run</em> the portal — for a demo, QA pass, or to evaluate it before deciding on production deployment — this is the shortest path. Skip every section after this one; you don't need Python, Node, or PostgreSQL on your Windows host.</p>
+
+<h3>0.1 Install Docker Desktop</h3>
+<table>
+  <thead>
+    <tr><th>Tool</th><th>Version</th><th>Download</th><th>During install</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Git for Windows</strong></td>
+      <td>2.40+</td>
+      <td><a href="https://git-scm.com/download/win" target="_blank" rel="noopener">git-scm.com</a></td>
+      <td>Default options.</td>
+    </tr>
+    <tr>
+      <td><strong>Docker Desktop</strong></td>
+      <td>4.x</td>
+      <td><a href="https://www.docker.com/products/docker-desktop/" target="_blank" rel="noopener">docker.com</a></td>
+      <td>Leave <strong>"Use WSL 2 instead of Hyper-V"</strong> ticked (default). Reboot when prompted.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>After installing, open Docker Desktop once and wait for the whale icon (bottom-left) to turn green. Verify in PowerShell:</p>
+
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="arg">--version</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="arg">version</span></code></pre>
+
+<div class="callout warn">
+  <span class="tag">Windows prerequisites Docker Desktop checks for you</span>
+  <ul>
+    <li>Windows 10 22H2 / Windows 11 (64-bit).</li>
+    <li>CPU virtualization enabled in BIOS (the installer warns if not).</li>
+    <li>WSL 2 (the installer offers to install it if it's missing).</li>
+  </ul>
+</div>
+
+<h3>0.2 Clone the repository</h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">mkdir</span> <span class="arg">C:\dev</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">cd</span> <span class="arg">C:\dev</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">git</span> <span class="arg">clone</span> <span class="str">https://github.com/Shamseer1988/Employee-Housing-Control-Portal.git</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">cd</span> <span class="arg">Employee-Housing-Control-Portal</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">git</span> <span class="arg">checkout</span> <span class="str">claude/dreamy-fermat-JqZ1O</span>   <span class="com"># or main once merged</span></code></pre>
+
+<h3>0.3 Configure the root <code>.env</code></h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">Copy-Item</span> <span class="str">.env.example</span> <span class="str">.env</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">notepad</span> <span class="str">.env</span></code></pre>
+
+<p>Replace placeholders with these values for a local run (use real secrets in production):</p>
+
+<pre><span class="shell-label">.env</span><code><span class="kw">POSTGRES_DB</span>=pug_accommodation
+<span class="kw">POSTGRES_USER</span>=pug
+<span class="kw">POSTGRES_PASSWORD</span>=pug_local_pass
+
+<span class="kw">SECRET_KEY</span>=local-dev-secret-change-me-please-32-bytes
+<span class="kw">JWT_SECRET_KEY</span>=local-dev-jwt-secret-min-32-bytes-long-12345
+
+<span class="kw">CORS_ORIGINS</span>=http://localhost
+<span class="kw">PUBLIC_BASE_URL</span>=http://localhost
+
+<span class="kw">SUPERUSER_USERNAME</span>=admin
+<span class="kw">SUPERUSER_EMAIL</span>=admin@pugroup.local
+<span class="kw">SUPERUSER_PASSWORD</span>=ChangeMe123!
+
+<span class="kw">HTTP_PORT</span>=80
+<span class="kw">GUNICORN_WORKERS</span>=4</code></pre>
+
+<p>Save (<kbd>Ctrl</kbd> + <kbd>S</kbd>) and close Notepad.</p>
+
+<div class="callout warn">
+  <span class="tag">If port 80 is taken on Windows</span>
+  IIS, an older Skype install, or another web server may already be bound to port 80. Change two lines in <code>.env</code>:
+<pre style="margin:6px 0;"><code><span class="kw">HTTP_PORT</span>=8080
+<span class="kw">PUBLIC_BASE_URL</span>=http://localhost:8080
+<span class="kw">CORS_ORIGINS</span>=http://localhost:8080</code></pre>
+  Then open <code>http://localhost:8080</code> instead.
+</div>
+
+<h3>0.4 Build the images</h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">build</span></code></pre>
+
+<p>First build is ~3–5 minutes (downloads the base images, installs pip + npm packages, runs <code>next build</code>). Subsequent builds are much faster thanks to layer caching.</p>
+
+<h3>0.5 Start everything</h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">up</span> <span class="arg">-d</span></code></pre>
+
+<p>This starts four containers in dependency order: <strong>db</strong> → <strong>backend</strong> → <strong>frontend</strong> → <strong>nginx</strong>. The backend container automatically runs <code>flask db upgrade</code> (creates tables), then <code>flask seed</code> (36 permissions, 9 roles, 44 settings, admin user), then starts Gunicorn.</p>
+
+<p>Watch the boot live in a second PowerShell window:</p>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">logs</span> <span class="arg">-f</span> <span class="str">backend</span></code></pre>
+
+<p>You'll see <code>INFO  [alembic.runtime.migration] Will assume transactional DDL</code>, the seed lines, then <code>[gunicorn] Listening at: http://0.0.0.0:5000</code>. Press <kbd>Ctrl</kbd> + <kbd>C</kbd> to stop tailing — the containers keep running.</p>
+
+<h3>0.6 Open the portal</h3>
+<p>Browse to <a href="http://localhost" target="_blank" rel="noopener">http://localhost</a> (or <code>:8080</code> if you changed the port). Sign in:</p>
+<ul>
+  <li>Username: <code>admin</code></li>
+  <li>Password: <code>ChangeMe123!</code></li>
+</ul>
+
+<div class="callout ok">
+  <span class="tag">That's it</span>
+  Four containers, one network, one published port. Skip to the <a href="#login">smoke test in section 07</a> to take it for a spin, or jump to the Docker cheat-sheet below.
+</div>
+
+<h3>0.7 Docker cheat-sheet</h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="com"># Tail logs from any service</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">logs</span> <span class="arg">-f</span> <span class="str">backend</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">logs</span> <span class="arg">-f</span> <span class="str">frontend</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">logs</span> <span class="arg">-f</span> <span class="str">nginx</span>
+
+<span class="com"># Open an interactive Flask shell inside the backend</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">exec</span> <span class="str">backend</span> <span class="cmd">flask</span> <span class="arg">--app</span> <span class="str">wsgi</span> <span class="cmd">shell</span>
+
+<span class="com"># Re-run the seed (idempotent — refreshes permissions/settings)</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">exec</span> <span class="str">backend</span> <span class="cmd">flask</span> <span class="arg">--app</span> <span class="str">wsgi</span> <span class="cmd">seed</span>
+
+<span class="com"># Connect to Postgres directly</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">exec</span> <span class="str">db</span> <span class="cmd">psql</span> <span class="arg">-U</span> <span class="str">pug</span> <span class="arg">-d</span> <span class="str">pug_accommodation</span>
+
+<span class="com"># Run the test suite inside the running container</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">exec</span> <span class="str">backend</span> <span class="cmd">pytest</span> <span class="arg">-q</span> <span class="arg">--disable-warnings</span>
+
+<span class="com"># Stop everything (keeps the DB and uploads)</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">down</span>
+
+<span class="com"># Start again</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">up</span> <span class="arg">-d</span>
+
+<span class="com"># Restart a single service</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">restart</span> <span class="str">backend</span>
+
+<span class="com"># Rebuild after pulling new code</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">git</span> <span class="cmd">pull</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">build</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">up</span> <span class="arg">-d</span>
+
+<span class="com"># Nuke EVERYTHING including the database (dev only — irreversible)</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">down</span> <span class="arg">-v</span></code></pre>
+
+<h3>0.8 Backup &amp; restore on Windows</h3>
+<p>The shell scripts in <code>scripts/</code> are bash, so on Windows talk to the container directly with PowerShell:</p>
+
+<pre><span class="shell-label">PowerShell — backup</span><code><span class="prompt">PS&gt;</span> <span class="cmd">mkdir</span> <span class="arg">backups</span> <span class="arg">-Force</span>
+<span class="prompt">PS&gt;</span> <span class="kw">$stamp</span> = <span class="cmd">Get-Date</span> <span class="arg">-Format</span> <span class="str">"yyyyMMddTHHmmssZ"</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">exec</span> <span class="arg">-T</span> <span class="str">db</span> <span class="cmd">pg_dump</span> <span class="arg">-U</span> <span class="str">pug</span> <span class="str">pug_accommodation</span> | <span class="cmd">Out-File</span> <span class="arg">-FilePath</span> <span class="str">"backups/pug-$stamp.sql"</span> <span class="arg">-Encoding</span> <span class="str">utf8</span></code></pre>
+
+<pre><span class="shell-label">PowerShell — restore</span><code><span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">exec</span> <span class="arg">-T</span> <span class="str">db</span> <span class="cmd">psql</span> <span class="arg">-U</span> <span class="str">pug</span> <span class="arg">-d</span> <span class="str">pug_accommodation</span> <span class="arg">-c</span> <span class="str">"DROP SCHEMA public CASCADE; CREATE SCHEMA public;"</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">Get-Content</span> <span class="str">backups/pug-20260101T000000Z.sql</span> | <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">exec</span> <span class="arg">-T</span> <span class="str">db</span> <span class="cmd">psql</span> <span class="arg">-U</span> <span class="str">pug</span> <span class="arg">-d</span> <span class="str">pug_accommodation</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">docker</span> <span class="cmd">compose</span> <span class="cmd">restart</span> <span class="str">backend</span></code></pre>
+
+<h3>0.9 Docker vs native setup — which to pick</h3>
+<table>
+  <thead>
+    <tr><th></th><th>Docker Compose</th><th>Native (sections 01–10)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Install steps</td><td>1 (Docker Desktop)</td><td>4 (Git, Python, Node, Postgres)</td></tr>
+    <tr><td>Time to first login</td><td>~5 min</td><td>~15 min</td></tr>
+    <tr><td>DB / user creation</td><td>Automatic</td><td>Manual <code>psql</code> commands</td></tr>
+    <tr><td>Migrations &amp; seed</td><td>Automatic on every boot</td><td>Manual after <code>git pull</code></td></tr>
+    <tr><td>PATH / dependency issues</td><td>None</td><td>Possible (psql, Python)</td></tr>
+    <tr><td>Disk footprint</td><td>~2 GB (images + WSL)</td><td>~600 MB</td></tr>
+    <tr><td>Code edits hot-reload</td><td>❌ Rebuild needed</td><td>✅ Flask + Next reload on save</td></tr>
+    <tr><td>RAM at idle</td><td>~2 GB (WSL VM)</td><td>~400 MB</td></tr>
+    <tr><td>Matches production exactly</td><td>✅ Same images</td><td>❌ Different runtime</td></tr>
+    <tr><td>Best for</td><td>Demos, QA, parity with prod</td><td>Active development</td></tr>
+  </tbody>
+</table>
+
+<h3>0.10 Docker troubleshooting</h3>
+<table>
+  <thead>
+    <tr><th>Symptom</th><th>Fix</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>error during connect: ... open //./pipe/dockerDesktopLinuxEngine</code></td>
+      <td>Docker Desktop isn't running. Launch it from the Start menu and wait for the green whale icon.</td>
+    </tr>
+    <tr>
+      <td><code>Ports are not available: ... bind: address already in use</code></td>
+      <td>Port 80 is taken on your machine. Change <code>HTTP_PORT</code>, <code>PUBLIC_BASE_URL</code>, and <code>CORS_ORIGINS</code> in <code>.env</code> as shown in §0.3, then <code>docker compose up -d</code> again.</td>
+    </tr>
+    <tr>
+      <td><code>WSL 2 installation is incomplete</code> dialog on first run</td>
+      <td>Run <code>wsl --install</code> in an Administrator PowerShell, reboot, relaunch Docker Desktop.</td>
+    </tr>
+    <tr>
+      <td>Frontend container exits with build errors mentioning <code>NEXT_PUBLIC_API_URL</code></td>
+      <td>Make sure <code>PUBLIC_BASE_URL</code> in <code>.env</code> matches what the browser actually uses. Rebuild: <code>docker compose build frontend &amp;&amp; docker compose up -d</code>.</td>
+    </tr>
+    <tr>
+      <td>Login returns "Invalid credentials"</td>
+      <td><code>docker compose exec backend flask --app wsgi seed</code> to recreate the admin user, then try the password from <code>SUPERUSER_PASSWORD</code> in <code>.env</code>.</td>
+    </tr>
+    <tr>
+      <td>Want to start over from a clean database</td>
+      <td><code>docker compose down -v</code> deletes the named volumes (including <code>pug_pgdata</code>), then <code>docker compose up -d</code> recreates everything from scratch.</td>
+    </tr>
+    <tr>
+      <td>Docker Desktop using too much RAM</td>
+      <td>Open Docker Desktop → Settings → Resources → cap WSL Memory to e.g. 4 GB.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- =========================================================== -->
+<h2 id="prereqs"><span class="num">01</span> Prerequisites &amp; installers</h2>
+<p>Install these four tools first. Use the official Windows installers; default options are fine unless noted.</p>
+
+<table>
+  <thead>
+    <tr><th>Tool</th><th>Version</th><th>Download</th><th>During install</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Git for Windows</strong></td>
+      <td>2.40+</td>
+      <td><a href="https://git-scm.com/download/win" target="_blank" rel="noopener">git-scm.com</a></td>
+      <td>Pick <em>"Git from the command line and 3rd-party software"</em>. Default everything else.</td>
+    </tr>
+    <tr>
+      <td><strong>Python</strong></td>
+      <td>3.11.x or 3.12.x</td>
+      <td><a href="https://www.python.org/downloads/windows/" target="_blank" rel="noopener">python.org</a></td>
+      <td><strong>Tick "Add python.exe to PATH"</strong> on the first installer screen.</td>
+    </tr>
+    <tr>
+      <td><strong>Node.js</strong></td>
+      <td>20.x LTS</td>
+      <td><a href="https://nodejs.org/en/download" target="_blank" rel="noopener">nodejs.org</a></td>
+      <td>Default. The installer adds Node and <code>npm</code> to PATH automatically.</td>
+    </tr>
+    <tr>
+      <td><strong>PostgreSQL</strong></td>
+      <td>14.x – 16.x</td>
+      <td><a href="https://www.postgresql.org/download/windows/" target="_blank" rel="noopener">postgresql.org</a></td>
+      <td>Remember the <strong>postgres</strong> superuser password you set. Leave port at <code>5432</code>. <strong>Tick "Stack Builder"</strong> only if you want extras (you don't need it).</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout warn">
+  <span class="tag">PowerShell execution policy</span>
+  If activating the Python virtual environment later complains about scripts being disabled, run this <strong>once</strong> in PowerShell (as your normal user):
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">Set-ExecutionPolicy</span> <span class="arg">-ExecutionPolicy</span> <span class="str">RemoteSigned</span> <span class="arg">-Scope</span> <span class="str">CurrentUser</span></code></pre>
+  Answer <code>Y</code>. This is safe — it allows locally-created and signed scripts.
+</div>
+
+<div class="callout">
+  <span class="tag">Recommended terminal</span>
+  Use <strong>Windows Terminal</strong> with PowerShell 7 (install from Microsoft Store). Every command below assumes PowerShell unless labelled <code>CMD</code> or <code>psql</code>.
+</div>
+
+<!-- =========================================================== -->
+<h2 id="verify"><span class="num">02</span> Verify every tool is installed</h2>
+<p>Open a new PowerShell window and confirm each one prints a version. <strong>Close and reopen any old terminals after installing</strong> so PATH updates are picked up.</p>
+
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">git</span> <span class="arg">--version</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">python</span> <span class="arg">--version</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">pip</span> <span class="arg">--version</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">node</span> <span class="arg">--version</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">npm</span> <span class="arg">--version</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">psql</span> <span class="arg">--version</span></code></pre>
+
+<div class="callout warn">
+  <span class="tag">If <code>psql</code> is not recognised</span>
+  PostgreSQL adds its <code>bin</code> folder to PATH only when the installer detects an existing PATH variable. Manually add it:
+  <ol>
+    <li>Press <kbd>Win</kbd> + <kbd>R</kbd> → type <code>sysdm.cpl</code> → Enter.</li>
+    <li>Tab "Advanced" → Environment Variables → under "User variables" select <strong>Path</strong> → Edit → New.</li>
+    <li>Add <code>C:\Program Files\PostgreSQL\16\bin</code> (adjust version number).</li>
+    <li>Click OK three times. <strong>Open a fresh PowerShell</strong> and re-run <code>psql --version</code>.</li>
+  </ol>
+</div>
+
+<!-- =========================================================== -->
+<h2 id="clone"><span class="num">03</span> Clone the repository</h2>
+<p>Pick a folder for the project (we'll use <code>C:\dev</code> as an example) and clone.</p>
+
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">mkdir</span> <span class="arg">C:\dev</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">cd</span> <span class="arg">C:\dev</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">git</span> <span class="arg">clone</span> <span class="str">https://github.com/Shamseer1988/Employee-Housing-Control-Portal.git</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">cd</span> <span class="arg">Employee-Housing-Control-Portal</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">git</span> <span class="arg">checkout</span> <span class="str">claude/dreamy-fermat-JqZ1O</span>   <span class="com"># or main once merged</span></code></pre>
+
+<p>You should now have <code>C:\dev\Employee-Housing-Control-Portal</code> with <code>backend/</code>, <code>frontend/</code>, <code>docs/</code>, etc.</p>
+
+<!-- =========================================================== -->
+<h2 id="database"><span class="num">04</span> Create the PostgreSQL database &amp; user</h2>
+<p>Open the <code>psql</code> shell as the superuser. You'll be prompted for the password you set during PostgreSQL installation.</p>
+
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">psql</span> <span class="arg">-U</span> <span class="str">postgres</span></code></pre>
+
+<p>The prompt changes to <code>postgres=#</code>. Paste the following four lines exactly:</p>
+
+<pre><span class="shell-label">psql</span><code><span class="kw">CREATE USER</span> pug <span class="kw">WITH PASSWORD</span> <span class="str">'pug_local_pass'</span>;
+<span class="kw">CREATE DATABASE</span> pug_accommodation <span class="kw">OWNER</span> pug;
+<span class="kw">GRANT ALL PRIVILEGES ON DATABASE</span> pug_accommodation <span class="kw">TO</span> pug;
+\q</code></pre>
+
+<p>You're back at PowerShell. Confirm the database exists and your new user can log in:</p>
+
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">psql</span> <span class="arg">-U</span> <span class="str">pug</span> <span class="arg">-d</span> <span class="str">pug_accommodation</span> <span class="arg">-c</span> <span class="str">"SELECT current_user, current_database();"</span></code></pre>
+
+<p>Enter the password <code>pug_local_pass</code> when prompted. You should see:</p>
+<pre><code> current_user |  current_database
+--------------+---------------------
+ pug          | pug_accommodation
+(1 row)</code></pre>
+
+<div class="callout danger">
+  <span class="tag">Local password ≠ production</span>
+  The <code>pug_local_pass</code> password is for local development only. Pick a strong one for any shared environment and never commit it.
+</div>
+
+<!-- =========================================================== -->
+<h2 id="backend"><span class="num">05</span> Backend setup (Flask)</h2>
+
+<h3>5.1 Create the Python virtual environment</h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">cd</span> <span class="arg">C:\dev\Employee-Housing-Control-Portal\backend</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">python</span> <span class="arg">-m</span> <span class="str">venv</span> <span class="arg">.venv</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">.\.venv\Scripts\Activate.ps1</span></code></pre>
+
+<p>Your prompt now starts with <code>(.venv)</code>. If you ever close the terminal, just re-run that <code>Activate.ps1</code> line to re-enter the venv.</p>
+
+<div class="callout">
+  <span class="tag">CMD instead of PowerShell?</span>
+  Activate with <code>.venv\Scripts\activate.bat</code> instead.
+</div>
+
+<h3>5.2 Install dependencies</h3>
+<pre><span class="shell-label">PowerShell (venv)</span><code><span class="prompt">(.venv) PS&gt;</span> <span class="cmd">python</span> <span class="arg">-m</span> <span class="str">pip</span> <span class="cmd">install</span> <span class="arg">--upgrade</span> <span class="str">pip</span>
+<span class="prompt">(.venv) PS&gt;</span> <span class="cmd">pip</span> <span class="cmd">install</span> <span class="arg">-r</span> <span class="str">requirements.txt</span></code></pre>
+
+<p>This takes ~30 seconds. It installs Flask, SQLAlchemy, Flask-Migrate, psycopg2, openpyxl, etc.</p>
+
+<h3>5.3 Configure environment variables</h3>
+<pre><span class="shell-label">PowerShell (venv)</span><code><span class="prompt">(.venv) PS&gt;</span> <span class="cmd">Copy-Item</span> <span class="str">.env.example</span> <span class="str">.env</span>
+<span class="prompt">(.venv) PS&gt;</span> <span class="cmd">notepad</span> <span class="str">.env</span></code></pre>
+
+<p>Notepad opens. Replace the file with these values (keep your own secrets if you want):</p>
+
+<pre><span class="shell-label">.env</span><code><span class="kw">FLASK_APP</span>=wsgi.py
+<span class="kw">FLASK_ENV</span>=development
+<span class="kw">FLASK_DEBUG</span>=1
+<span class="kw">SECRET_KEY</span>=local-dev-secret-change-me
+<span class="kw">JWT_SECRET_KEY</span>=local-dev-jwt-secret-min-32-bytes-long-12345
+
+<span class="kw">DATABASE_URL</span>=postgresql+psycopg2://pug:pug_local_pass@localhost:5432/pug_accommodation
+
+<span class="kw">CORS_ORIGINS</span>=http://localhost:3000
+
+<span class="kw">UPLOAD_FOLDER</span>=../uploads
+<span class="kw">MAX_CONTENT_LENGTH_MB</span>=25
+
+<span class="com"># Default super user (created on first `flask seed` run)</span>
+<span class="kw">SUPERUSER_USERNAME</span>=admin
+<span class="kw">SUPERUSER_EMAIL</span>=admin@pugroup.local
+<span class="kw">SUPERUSER_PASSWORD</span>=ChangeMe123!</code></pre>
+
+<p>Save (<kbd>Ctrl</kbd> + <kbd>S</kbd>) and close Notepad.</p>
+
+<h3>5.4 Initialise migrations and create tables</h3>
+<pre><span class="shell-label">PowerShell (venv)</span><code><span class="prompt">(.venv) PS&gt;</span> <span class="cmd">flask</span> <span class="arg">--app</span> <span class="str">wsgi</span> <span class="cmd">db</span> <span class="str">init</span>
+<span class="prompt">(.venv) PS&gt;</span> <span class="cmd">flask</span> <span class="arg">--app</span> <span class="str">wsgi</span> <span class="cmd">db</span> <span class="str">migrate</span> <span class="arg">-m</span> <span class="str">"initial"</span>
+<span class="prompt">(.venv) PS&gt;</span> <span class="cmd">flask</span> <span class="arg">--app</span> <span class="str">wsgi</span> <span class="cmd">db</span> <span class="str">upgrade</span></code></pre>
+
+<div class="callout">
+  <span class="tag">What just happened</span>
+  <ul>
+    <li><code>db init</code> creates a fresh <code>backend/migrations/</code> folder. <strong>Run it only once.</strong></li>
+    <li><code>db migrate</code> auto-detects every SQLAlchemy model in the app and produces a migration script.</li>
+    <li><code>db upgrade</code> applies the script — your <code>pug_accommodation</code> database now has all the tables.</li>
+  </ul>
+  Future model changes follow the same pattern: <code>db migrate -m "describe change"</code> → <code>db upgrade</code>.
+</div>
+
+<h3>5.5 Seed permissions, roles &amp; the super user</h3>
+<pre><span class="shell-label">PowerShell (venv)</span><code><span class="prompt">(.venv) PS&gt;</span> <span class="cmd">flask</span> <span class="arg">--app</span> <span class="str">wsgi</span> <span class="cmd">seed</span></code></pre>
+
+<p>Expected output:</p>
+<pre><code>Seeding permissions...
+  → 36 permissions present
+Seeding roles...
+  → 9 roles present
+Seeding super user...
+  → created super user 'admin' (password from SUPERUSER_PASSWORD)
+Seeding system settings...
+Done.</code></pre>
+
+<h3>5.6 Start the API</h3>
+<pre><span class="shell-label">PowerShell (venv)</span><code><span class="prompt">(.venv) PS&gt;</span> <span class="cmd">python</span> <span class="str">wsgi.py</span></code></pre>
+
+<p>The Flask dev server prints <code>* Running on http://0.0.0.0:5000</code>. <strong>Leave this terminal open.</strong> Quick smoke test in a <em>second</em> PowerShell window:</p>
+
+<pre><span class="shell-label">PowerShell (new window)</span><code><span class="prompt">PS&gt;</span> <span class="cmd">curl</span> <span class="str">http://localhost:5000/api/v1/health</span></code></pre>
+
+<div class="callout ok">
+  <span class="tag">Expected</span>
+  A JSON response like <code>{ "success": true, "data": { "status": "healthy", ... } }</code>.
+</div>
+
+<!-- =========================================================== -->
+<h2 id="frontend"><span class="num">06</span> Frontend setup (Next.js)</h2>
+
+<p>Open a <strong>third</strong> PowerShell window (keep the backend running in its own).</p>
+
+<h3>6.1 Install npm dependencies</h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">cd</span> <span class="arg">C:\dev\Employee-Housing-Control-Portal\frontend</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">npm</span> <span class="cmd">install</span></code></pre>
+
+<p>Takes 1–2 minutes the first time.</p>
+
+<h3>6.2 Configure the API URL</h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">Copy-Item</span> <span class="str">.env.example</span> <span class="str">.env.local</span></code></pre>
+
+<p>The default contents already point at <code>http://localhost:5000</code>, which matches the running backend.</p>
+
+<h3>6.3 Start the dev server</h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">npm</span> <span class="cmd">run</span> <span class="str">dev</span></code></pre>
+
+<p>Output ends with:</p>
+<pre><code>  ▲ Next.js 14.2.10
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Ready in ~2 s</code></pre>
+
+<!-- =========================================================== -->
+<h2 id="login"><span class="num">07</span> First login &amp; smoke test</h2>
+<ol>
+  <li>Open <a href="http://localhost:3000" target="_blank" rel="noopener">http://localhost:3000</a> in your browser.</li>
+  <li>You'll be redirected to <code>/login</code>. Sign in with:
+    <ul>
+      <li>Username: <code>admin</code></li>
+      <li>Password: <code>ChangeMe123!</code></li>
+    </ul>
+  </li>
+  <li>You land on the Dashboard. Empty for now — that's expected.</li>
+  <li>Walk through a quick happy path to confirm the stack works:</li>
+</ol>
+
+<ul class="checklist">
+  <li>Settings → toggle the <strong>UI / Theme</strong> accent color → header & buttons reflect the change.</li>
+  <li>Divisions → "New division" → save → row appears with auto-code <code>DIV-0001</code>.</li>
+  <li>Landlords → "New landlord" → save → <code>LL-0001</code>.</li>
+  <li>Properties → "New property" → <code>PROP-0001</code>.</li>
+  <li>Open the property → Floors tab → add a floor → Rooms tab → add a room → add a bed (<code>PROP-0001-F1-R101-B1</code>).</li>
+  <li>Employees → "New employee" → save → <code>EMP-00001</code>.</li>
+  <li>Transactions → New assignment → wizard → post → bed flips to <strong>occupied</strong>.</li>
+</ul>
+
+<div class="callout warn">
+  <span class="tag">Change the admin password</span>
+  Before anyone else uses the instance, sign in as <code>admin</code>, hit your name in the top right, and update the password. The seed CLI is idempotent but it never overwrites a manually-changed password.
+</div>
+
+<!-- =========================================================== -->
+<h2 id="tests"><span class="num">08</span> Run the test suite (optional)</h2>
+
+<h3>8.1 Backend (pytest)</h3>
+<pre><span class="shell-label">PowerShell (venv)</span><code><span class="prompt">(.venv) PS&gt;</span> <span class="cmd">cd</span> <span class="arg">C:\dev\Employee-Housing-Control-Portal\backend</span>
+<span class="prompt">(.venv) PS&gt;</span> <span class="cmd">.\.venv\Scripts\Activate.ps1</span>
+<span class="prompt">(.venv) PS&gt;</span> <span class="cmd">pip</span> <span class="cmd">install</span> <span class="str">pytest</span>
+<span class="prompt">(.venv) PS&gt;</span> <span class="cmd">pytest</span> <span class="arg">-q</span> <span class="arg">--disable-warnings</span></code></pre>
+
+<p>Expected: <code>99 passed</code>.</p>
+
+<h3>8.2 Frontend (Vitest, type-check, build)</h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">cd</span> <span class="arg">C:\dev\Employee-Housing-Control-Portal\frontend</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">npm</span> <span class="cmd">run</span> <span class="str">type-check</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">npm</span> <span class="cmd">test</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">npm</span> <span class="cmd">run</span> <span class="str">build</span>     <span class="com"># optional — confirms a production build compiles</span></code></pre>
+
+<p>Expected: <code>type-check</code> silent, <code>13 passed</code>, build ends with route table.</p>
+
+<!-- =========================================================== -->
+<h2 id="daily"><span class="num">09</span> Daily workflow</h2>
+<p>Two terminals are enough day-to-day.</p>
+
+<h3>Terminal 1 — backend</h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">cd</span> <span class="arg">C:\dev\Employee-Housing-Control-Portal\backend</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">.\.venv\Scripts\Activate.ps1</span>
+<span class="prompt">(.venv) PS&gt;</span> <span class="cmd">python</span> <span class="str">wsgi.py</span></code></pre>
+
+<h3>Terminal 2 — frontend</h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">cd</span> <span class="arg">C:\dev\Employee-Housing-Control-Portal\frontend</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">npm</span> <span class="cmd">run</span> <span class="str">dev</span></code></pre>
+
+<p>Stop either with <kbd>Ctrl</kbd> + <kbd>C</kbd>. Open <a href="http://localhost:3000" target="_blank" rel="noopener">http://localhost:3000</a> and you're working.</p>
+
+<h3>Pulling new changes</h3>
+<pre><span class="shell-label">PowerShell</span><code><span class="prompt">PS&gt;</span> <span class="cmd">cd</span> <span class="arg">C:\dev\Employee-Housing-Control-Portal</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">git</span> <span class="cmd">pull</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">cd</span> <span class="arg">backend</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">.\.venv\Scripts\Activate.ps1</span>
+<span class="prompt">(.venv) PS&gt;</span> <span class="cmd">pip</span> <span class="cmd">install</span> <span class="arg">-r</span> <span class="str">requirements.txt</span>   <span class="com"># in case deps changed</span>
+<span class="prompt">(.venv) PS&gt;</span> <span class="cmd">flask</span> <span class="arg">--app</span> <span class="str">wsgi</span> <span class="cmd">db</span> <span class="str">upgrade</span>          <span class="com"># in case migrations were added</span>
+<span class="prompt">(.venv) PS&gt;</span> <span class="cmd">flask</span> <span class="arg">--app</span> <span class="str">wsgi</span> <span class="cmd">seed</span>                <span class="com"># idempotent — refreshes settings/permissions</span>
+<span class="prompt">(.venv) PS&gt;</span> <span class="cmd">cd</span> <span class="arg">..\frontend</span>
+<span class="prompt">PS&gt;</span> <span class="cmd">npm</span> <span class="cmd">install</span></code></pre>
+
+<!-- =========================================================== -->
+<h2 id="trouble"><span class="num">10</span> Troubleshooting</h2>
+
+<table>
+  <thead>
+    <tr><th>Symptom</th><th>Fix</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>Activate.ps1 cannot be loaded because running scripts is disabled</code></td>
+      <td>Run <code>Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser</code> once, then re-activate.</td>
+    </tr>
+    <tr>
+      <td><code>psql: command not found</code> after PostgreSQL install</td>
+      <td>Add <code>C:\Program Files\PostgreSQL\&lt;ver&gt;\bin</code> to <strong>User PATH</strong> (see §02). Open a fresh terminal.</td>
+    </tr>
+    <tr>
+      <td><code>pip install</code> fails on <code>psycopg2-binary</code> compile</td>
+      <td>Confirm Python is 3.11 or 3.12 (3.13 wheels weren't ready at the time of writing). <code>python --version</code>.</td>
+    </tr>
+    <tr>
+      <td><code>FATAL: password authentication failed for user "pug"</code></td>
+      <td>The password in <code>backend/.env</code> doesn't match the one you set during <code>CREATE USER</code>. Re-open <code>backend/.env</code> and align them.</td>
+    </tr>
+    <tr>
+      <td><code>FATAL: database "pug_accommodation" does not exist</code></td>
+      <td>Re-run step <strong>04</strong> — the <code>CREATE DATABASE</code> line was skipped or used a different name.</td>
+    </tr>
+    <tr>
+      <td><code>flask: command not found</code></td>
+      <td>The virtual env isn't active. Re-run <code>.\.venv\Scripts\Activate.ps1</code> from inside <code>backend\</code>.</td>
+    </tr>
+    <tr>
+      <td><code>Target database is not up to date</code> on <code>db migrate</code></td>
+      <td>Run <code>flask --app wsgi db upgrade</code> first, then <code>db migrate</code>.</td>
+    </tr>
+    <tr>
+      <td><code>EADDRINUSE :3000</code> or <code>:5000</code></td>
+      <td>Another process is on that port. Find it: <code>netstat -ano | findstr :5000</code> → note the PID → <code>taskkill /F /PID &lt;pid&gt;</code>.</td>
+    </tr>
+    <tr>
+      <td>Frontend loads but every API call shows CORS error in DevTools</td>
+      <td><code>CORS_ORIGINS</code> in <code>backend/.env</code> must include the exact origin (<code>http://localhost:3000</code>, no trailing slash). Restart the backend after editing.</td>
+    </tr>
+    <tr>
+      <td>Login returns "Invalid credentials" with the seeded admin</td>
+      <td>Re-run <code>flask --app wsgi seed</code>. If you'd already changed the password in the UI, use that one instead.</td>
+    </tr>
+    <tr>
+      <td>Want to start over from a clean database</td>
+      <td>
+        <pre style="margin:6px 0;"><code>psql -U postgres -c "DROP DATABASE pug_accommodation;"
+psql -U postgres -c "CREATE DATABASE pug_accommodation OWNER pug;"</code></pre>
+        Then re-run <code>flask db upgrade</code> and <code>flask seed</code>.
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- =========================================================== -->
+<footer>
+  <strong>You're done.</strong> Backend on <code>:5000</code>, frontend on <code>:3000</code>, admin password rotated, dev workflow in two terminals. For production deployment on Ubuntu + Docker, follow <code>docs/DEPLOYMENT.md</code> in the repository.
+</footer>
+
+</div>
+</body>
+</html>
