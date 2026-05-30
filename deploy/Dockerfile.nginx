@@ -1,4 +1,4 @@
-FROM nginx:1.27-alpine
+FROM nginx:1.31-alpine
 
 # Which nginx config to bake in. Dev passes NGINX_CONF=nginx.dev.conf
 # (plain HTTP, no TLS); prod uses nginx.conf (TLS + Cloudflare allowlist).
