@@ -9,6 +9,20 @@ from ..utils.responses import success_response, error_response
 
 beds_bp = Blueprint("beds", __name__)
 
+
+def _publish_occupancy(event: dict) -> None:
+    """Best-effort SSE publish so the floor-plan / dashboard re-fetch.
+
+    Mirrors the assignment service: failures here must never roll back
+    the surrounding mutation.
+    """
+    try:
+        from ..services import events as event_service
+        event_service.publish("occupancy", event)
+    except Exception:
+        pass
+
+
 EDITABLE = {"bed_number", "bed_type", "remarks"}
 
 # Transitions a manual operator can drive in Phase 4. Assignment / vacation
@@ -84,6 +98,11 @@ def create_bed(room_id: int):
     audit.record(user=actor, action="create", module="bed",
                  entity_type="bed", entity_id=bed.id, new_value=bed.to_dict())
     db.session.commit()
+    _publish_occupancy({
+        "type": "bed.created",
+        "property_id": bed.property_id, "room_id": bed.room_id,
+        "bed_id": bed.id, "bed_code": bed.bed_code,
+    })
     return success_response(data=bed.to_dict(), message="Bed created", status=201)
 
 
@@ -213,6 +232,11 @@ def create_beds_bulk(room_id: int):
         remarks=f"Bulk-added {len(created)} bed(s) to room {room.room_number}",
     )
     db.session.commit()
+    _publish_occupancy({
+        "type": "bed.bulk_created",
+        "property_id": room.property_id, "room_id": room.id,
+        "count": len(created),
+    })
     return success_response(
         data={"beds": [b.to_dict() for b in created], "count": len(created)},
         message=f"{len(created)} bed(s) created",
@@ -244,6 +268,12 @@ def set_bed_status(bed_id: int):
                  old_value={"status": old_status}, new_value={"status": new_status},
                  remarks=payload.get("remarks"))
     db.session.commit()
+    _publish_occupancy({
+        "type": "bed.status_changed",
+        "property_id": bed.property_id, "room_id": bed.room_id,
+        "bed_id": bed.id, "bed_code": bed.bed_code,
+        "old_status": old_status, "status": new_status,
+    })
     return success_response(data=bed.to_dict(), message="Bed status updated")
 
 
@@ -254,6 +284,7 @@ def delete_bed(bed_id: int):
     if bed.status == "occupied":
         return error_response("Cannot delete an occupied bed; release it first", 409)
     room = bed.room
+    bed_id_snap, bed_code_snap, prop_id_snap, room_id_snap = bed.id, bed.bed_code, bed.property_id, bed.room_id
     actor = current_user()
     audit.record(user=actor, action="delete", module="bed",
                  entity_type="bed", entity_id=bed.id, old_value=bed.to_dict())
@@ -261,4 +292,9 @@ def delete_bed(bed_id: int):
     db.session.flush()
     room.recompute_status()
     db.session.commit()
+    _publish_occupancy({
+        "type": "bed.deleted",
+        "property_id": prop_id_snap, "room_id": room_id_snap,
+        "bed_id": bed_id_snap, "bed_code": bed_code_snap,
+    })
     return success_response(message="Bed deleted")

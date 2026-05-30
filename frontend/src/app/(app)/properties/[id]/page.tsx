@@ -1020,7 +1020,7 @@ function BedsPanel({ room, onChanged, onEditRoom }: {
       <Can perm="bed.manage">
         <div className="flex items-center gap-2 pt-2 border-t border-border">
           <input
-            placeholder={`Bed # (capacity ${room.bed_counts.total}/${room.capacity})`}
+            placeholder={`Bed # (capacity ${beds.length}/${room.capacity})`}
             value={newNumber}
             onChange={(e) => setNewNumber(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && create()}
@@ -1030,7 +1030,7 @@ function BedsPanel({ room, onChanged, onEditRoom }: {
             className="h-8 rounded-md border border-input bg-card/60 px-2 text-sm">
             {BED_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
           </select>
-          <button onClick={create} disabled={adding || !newNumber.trim() || room.bed_counts.total >= room.capacity}
+          <button onClick={create} disabled={adding || !newNumber.trim() || beds.length >= room.capacity}
             className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
             {adding ? "…" : "Add bed"}
           </button>

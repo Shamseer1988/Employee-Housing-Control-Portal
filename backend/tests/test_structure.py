@@ -473,3 +473,68 @@ def test_bulk_empty_list_rejected(client, auth_headers):
         json={"units": []},
     )
     assert resp.status_code == 400
+
+
+# ---------- Phase 5: bed/room actions visibly shift the occupancy summary ----------
+
+
+def test_bed_maintenance_reflected_in_property_summary(client, auth_headers):
+    """Phase 5b: marking a bed as maintenance shifts /occupancy counts."""
+    prop = _make_property(client, auth_headers, "Maint P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    room = _make_room(client, auth_headers, floor["id"], "101", capacity=2)
+    b1 = client.post(
+        f"/api/v1/rooms/{room['id']}/beds", headers=auth_headers,
+        json={"bed_number": "1"},
+    ).get_json()["data"]
+    client.post(
+        f"/api/v1/rooms/{room['id']}/beds", headers=auth_headers,
+        json={"bed_number": "2"},
+    )
+
+    before = client.get(
+        f"/api/v1/properties/{prop['id']}/occupancy", headers=auth_headers
+    ).get_json()["data"]
+    assert before["beds"]["empty"] == 2
+    assert before["beds"]["maintenance"] == 0
+
+    resp = client.post(
+        f"/api/v1/beds/{b1['id']}/status", headers=auth_headers,
+        json={"status": "maintenance"},
+    )
+    assert resp.status_code == 200
+
+    after = client.get(
+        f"/api/v1/properties/{prop['id']}/occupancy", headers=auth_headers
+    ).get_json()["data"]
+    assert after["beds"]["empty"] == 1
+    assert after["beds"]["maintenance"] == 1
+    # And the bed itself reports the new status when re-read.
+    refresh = client.get(
+        f"/api/v1/rooms/{room['id']}/beds", headers=auth_headers,
+    ).get_json()["data"]
+    flipped = next(b for b in refresh if b["id"] == b1["id"])
+    assert flipped["status"] == "maintenance"
+
+
+def test_room_blocked_reflected_in_property_summary(client, auth_headers):
+    """Phase 5b: room.occupancy_status change shows in the room totals."""
+    prop = _make_property(client, auth_headers, "Block P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    room = _make_room(client, auth_headers, floor["id"], "101", capacity=1)
+    client.post(
+        f"/api/v1/rooms/{room['id']}/beds", headers=auth_headers,
+        json={"bed_number": "1"},
+    )
+
+    resp = client.post(
+        f"/api/v1/rooms/{room['id']}/status", headers=auth_headers,
+        json={"status": "blocked"},
+    )
+    assert resp.status_code == 200
+
+    summary = client.get(
+        f"/api/v1/properties/{prop['id']}/occupancy", headers=auth_headers,
+    ).get_json()["data"]
+    assert summary["rooms"]["blocked"] == 1
+    assert summary["rooms"]["total"] == 1

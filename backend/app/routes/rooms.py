@@ -9,6 +9,15 @@ from ..utils.responses import success_response, error_response
 
 rooms_bp = Blueprint("rooms", __name__)
 
+
+def _publish_occupancy(event: dict) -> None:
+    """Best-effort SSE publish — mirrors the bed routes."""
+    try:
+        from ..services import events as event_service
+        event_service.publish("occupancy", event)
+    except Exception:
+        pass
+
 EDITABLE = {
     "room_number", "room_name", "room_type", "capacity", "allowed_gender",
     "has_bathroom", "has_ac", "monthly_rent", "remarks",
@@ -139,6 +148,11 @@ def set_room_status(room_id: int):
     audit.record(user=actor, action="update_status", module="room",
                  entity_type="room", entity_id=room.id, new_value={"status": room.occupancy_status})
     db.session.commit()
+    _publish_occupancy({
+        "type": "room.status_changed",
+        "property_id": room.property_id, "room_id": room.id,
+        "status": room.occupancy_status,
+    })
     return success_response(data=room.to_dict(), message="Room status updated")
 
 
@@ -150,9 +164,14 @@ def delete_room(room_id: int):
         return error_response("Cannot delete a room with occupied beds", 409)
     if room.beds:
         return error_response("Delete all beds before deleting the room", 409)
+    room_id_snap, prop_id_snap = room.id, room.property_id
     actor = current_user()
     audit.record(user=actor, action="delete", module="room",
                  entity_type="room", entity_id=room.id, old_value=room.to_dict())
     db.session.delete(room)
     db.session.commit()
+    _publish_occupancy({
+        "type": "room.deleted",
+        "property_id": prop_id_snap, "room_id": room_id_snap,
+    })
     return success_response(message="Room deleted")
