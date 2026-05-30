@@ -1,14 +1,21 @@
-name: pug-accommodation
-
 # =============================================================================
-# LOCAL DEVELOPMENT compose.
+# LOCAL / DEV compose — no TLS, no nginx.
 #
-# Plain HTTP on port 80, no TLS, no Cloudflare allowlist. Boots clean on
-# any laptop with `docker compose up -d`.
+# The Next.js frontend is the single entry point on http://localhost:8080.
+# It serves the UI and reverse-proxies /api/* to the backend over the
+# compose network (see frontend/next.config.mjs -> BACKEND_INTERNAL_URL),
+# so the browser only ever talks to one origin and the JWT cookies are
+# first-party. No certificates, no port 80, nothing to conflict with IIS
+# or other local services.
 #
-# For production (Cloudflare Origin Cert + nginx TLS + edge allowlist) use:
+#     docker compose up -d --build
+#     → open http://localhost:8080   (admin / ChangeMe123!)
+#
+# For the LIVE deployment (Cloudflare Origin Cert + nginx TLS) use:
 #     docker compose -f docker-compose.prod.yml up -d --build
 # =============================================================================
+
+name: pug-accommodation
 
 services:
   db:
@@ -17,14 +24,11 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
       POSTGRES_USER: ${POSTGRES_USER:-pug}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug-local-pass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug_local_dev_pw}
     volumes:
       - pug_pgdata:/var/lib/postgresql/data
-      - ./backups:/backups
     ports:
-      # Exposed locally for psql / pgAdmin during development. Comment
-      # out if you don't want Postgres on the host.
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pug} -d ${POSTGRES_DB:-pug_accommodation}"]
       interval: 10s
@@ -51,28 +55,25 @@ services:
       redis:
         condition: service_healthy
     environment:
-      # development mode: skips the prod boot guard (dev secrets OK,
-      # CORS '*' OK, /docs available at /docs).
       FLASK_ENV: development
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug-local-pass}@db:5432/${POSTGRES_DB:-pug_accommodation}
-      REDIS_URL: redis://redis:6379/0
-      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-padded-to-32-chars}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-padded-to-32-chars}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug_local_dev_pw}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-12345}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-dev-secret-change-in-production-67890}
+      # Plain HTTP locally → cookies must NOT carry the Secure flag or the
+      # browser silently drops them and login "succeeds" but never sticks.
+      JWT_COOKIE_SECURE: "false"
+      JWT_COOKIE_SAMESITE: "Lax"
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
-      UPLOAD_FOLDER: /data/uploads
       SUPERUSER_USERNAME: ${SUPERUSER_USERNAME:-admin}
       SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-admin@pugroup.local}
       SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD:-ChangeMe123!}
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
-      ENABLE_API_DOCS: "1"
+    # Exposed so you can curl the API directly while debugging.
+    ports:
+      - "${BACKEND_PORT:-5000}:5000"
     volumes:
       - pug_uploads:/data/uploads
-    ports:
-      # Exposed so you can hit the API directly during dev without nginx.
-      - "${BACKEND_PORT:-5000}:5000"
-    # Boot sequence: ensure schema is current, seed (idempotent), then serve.
-    # `migrate-all` adds any missing tables/columns from older Phase 1-8
-    # deltas without disturbing the rest of the data.
     command: >
       sh -c "flask --app wsgi init-db &&
              flask --app wsgi migrate-all &&
@@ -90,17 +91,10 @@ services:
         condition: service_healthy
     environment:
       FLASK_ENV: development
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug-local-pass}@db:5432/${POSTGRES_DB:-pug_accommodation}
-      REDIS_URL: redis://redis:6379/0
-      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-padded-to-32-chars}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-padded-to-32-chars}
-      CORS_ORIGINS: ${CORS_ORIGINS:-*}
-      UPLOAD_FOLDER: /data/uploads
-    volumes:
-      - pug_uploads:/data/uploads
-    # celery_worker.py imports app.tasks so all @celery.task functions
-    # register against the worker. Without that import path, the worker
-    # boots with zero tasks.
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug_local_dev_pw}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-12345}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-dev-secret-change-in-production-67890}
     command: ["celery", "-A", "celery_worker.celery", "worker", "--loglevel=info"]
 
   beat:
@@ -114,46 +108,31 @@ services:
         condition: service_healthy
     environment:
       FLASK_ENV: development
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug-local-pass}@db:5432/${POSTGRES_DB:-pug_accommodation}
-      REDIS_URL: redis://redis:6379/0
-      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-padded-to-32-chars}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-padded-to-32-chars}
-      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug_local_dev_pw}@db:5432/${POSTGRES_DB:-pug_accommodation}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-12345}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-dev-secret-change-in-production-67890}
     command: ["celery", "-A", "celery_worker.celery", "beat", "--loglevel=info"]
 
   frontend:
     build:
       context: ./frontend
       args:
-        # Relative API URL — bundle calls /api/* on whatever host
-        # nginx is reachable at.
+        # Empty → the browser bundle calls /api/* RELATIVE to its own
+        # origin (http://localhost:8080), keeping everything first-party.
         NEXT_PUBLIC_API_URL: ""
     restart: unless-stopped
     depends_on:
       - backend
     environment:
       NODE_ENV: production
-      # Server-side only: where Next.js forwards /api/* when a request
-      # reaches the Next server (SSR, or a direct hit to :3000). The
-      # browser keeps calling relative /api/* through nginx. See
-      # next.config.mjs rewrites().
+      # Server-side reverse-proxy target. Next.js forwards /api/* here over
+      # the compose network. NOT a NEXT_PUBLIC_* var, so it never leaks
+      # into the browser bundle. See frontend/next.config.mjs.
       BACKEND_INTERNAL_URL: http://backend:5000
     ports:
-      # Exposed for direct dev hits if you want to bypass nginx.
-      - "${FRONTEND_PORT:-3000}:3000"
-
-  nginx:
-    build:
-      context: ./deploy
-      dockerfile: Dockerfile.nginx
-      args:
-        NGINX_CONF: nginx.dev.conf
-    restart: unless-stopped
-    depends_on:
-      - backend
-      - frontend
-    ports:
-      - "${HTTP_PORT:-80}:80"
+      # The app lives here: http://localhost:8080
+      - "${APP_PORT:-8080}:3000"
 
 volumes:
   pug_pgdata:
