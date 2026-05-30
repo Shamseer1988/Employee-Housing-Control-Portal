@@ -133,6 +133,11 @@ services:
       - backend
     environment:
       NODE_ENV: production
+      # Server-side only: where Next.js forwards /api/* when a request
+      # reaches the Next server (SSR, or a direct hit to :3000). The
+      # browser keeps calling relative /api/* through nginx. See
+      # next.config.mjs rewrites().
+      BACKEND_INTERNAL_URL: http://backend:5000
     ports:
       # Exposed for direct dev hits if you want to bypass nginx.
       - "${FRONTEND_PORT:-3000}:3000"
