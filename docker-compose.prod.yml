@@ -8,7 +8,7 @@ name: pug-accommodation-prod
 #   * .env with real SECRET_KEY / JWT_SECRET_KEY / POSTGRES_PASSWORD /
 #     SUPERUSER_PASSWORD / CORS_ORIGINS (no '*') / REDIS_URL set
 #     (see .env.example)
-#   * deploy/ssl/origin.pem + deploy/ssl/origin.key from the Cloudflare
+#   * deploy/ssl/origin.crt + deploy/ssl/origin.key from the Cloudflare
 #     dashboard (see deploy/ssl/README.txt and DEPLOY.md)
 #
 # Launch:

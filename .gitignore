@@ -44,5 +44,9 @@ backups/*
 backend/.venv-test/
 
 # Production TLS material — never commit (Phase 11).
+# Track only the README + layout templates; the real origin.crt /
+# origin.key are operator-placed at deploy time.
 deploy/ssl/*
 !deploy/ssl/README.txt
+!deploy/ssl/origin.crt.example
+!deploy/ssl/origin.key.example

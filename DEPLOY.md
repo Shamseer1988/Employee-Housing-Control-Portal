@@ -15,35 +15,59 @@ Target architecture:
 * Anyone trying to reach the static IP directly (bypassing Cloudflare)
   gets a 403 from nginx's edge allowlist.
 
-Throughout this doc, replace:
+Live configuration:
 
 ```
-  housing.example.com       →  your real subdomain
-  example.com               →  your apex domain
-  <YOUR_STATIC_PUBLIC_IP>   →  your office static public IPv4
+  Subdomain                :  accommodation.parisunitedgroup.com
+  Apex domain              :  parisunitedgroup.com
+  <YOUR_STATIC_PUBLIC_IP>  →  your office static public IPv4
 ```
+
+The Windows-Docker-specific bits (path syntax, line endings, file
+permissions, firewall) are called out at the bottom of this doc in
+the dedicated section.
 
 ---
 
 ## 1. Mint the Cloudflare Origin Certificate
 
-1.  Log in to the Cloudflare dashboard → select your zone (`example.com`)
-    → **SSL/TLS** → **Origin Server** → **Create Certificate**.
+1.  Log in to the Cloudflare dashboard → select your zone
+    (`parisunitedgroup.com`) → **SSL/TLS** → **Origin Server** →
+    **Create Certificate**.
 2.  Settings:
     * Private key type: **RSA (2048)**
-    * Hostnames: `housing.example.com` (add `*.example.com` if you'll
-      want subdomain reuse later)
+    * Hostnames:
+        - `accommodation.parisunitedgroup.com`
+        - (optional) `*.parisunitedgroup.com` if you'll want other
+          subdomains under the same cert later
     * Certificate validity: **15 years** (longest Cloudflare offers)
-3.  Copy the **Certificate** PEM into `deploy/ssl/origin.pem`.
-    Copy the **Private Key** PEM into `deploy/ssl/origin.key`.
+3.  Cloudflare will show two PEM blocks **once**. Save them now:
+    * The **Origin Certificate** block →  `deploy/ssl/origin.crt`
+    * The **Private key** block        →  `deploy/ssl/origin.key`
+
+    The dashboard never shows the private key again. If you close the
+    page without saving it, you must revoke the cert and mint a new
+    one.
+
+    Each file must start with `-----BEGIN ...-----` and end with
+    `-----END ...-----`, no extra blank lines outside the markers.
+    Layout reference: `deploy/ssl/origin.crt.example`,
+    `deploy/ssl/origin.key.example`.
+
 4.  Lock down the key on the host:
 
     ```bash
-    chmod 644 deploy/ssl/origin.pem
+    # Linux / macOS
+    chmod 644 deploy/ssl/origin.crt
     chmod 600 deploy/ssl/origin.key
     ```
 
-⚠️  `.gitignore` already excludes `deploy/ssl/*` (except the README). If
+    On Windows see the dedicated section below — chmod is a no-op on
+    NTFS; use Properties → Security to restrict origin.key to your
+    user account.
+
+⚠️  `.gitignore` already excludes `deploy/ssl/*` (except the README
+and the `.example` templates). If
 you accidentally commit either file, **revoke the certificate** in
 Cloudflare and mint a new one.
 
@@ -54,7 +78,7 @@ Cloudflare and mint a new one.
 1.  **DNS** → add an A record:
     | Type | Name      | Content                   | Proxy status     |
     | ---- | --------- | ------------------------- | ---------------- |
-    | A    | `housing` | `<YOUR_STATIC_PUBLIC_IP>` | **Proxied** (☁︎) |
+    | A    | `accommodation` | `<YOUR_STATIC_PUBLIC_IP>` | **Proxied** (☁︎) |
 2.  **SSL/TLS** → **Overview** → mode: **Full (strict)**.
 3.  **SSL/TLS** → **Edge Certificates** →
     * **Always Use HTTPS**: On
@@ -85,7 +109,7 @@ returns 403 to direct hits — see `deploy/nginx.conf`.)
 ## 4. Host setup + secrets
 
 ```bash
-git clone <repo> /opt/housing && cd /opt/housing
+git clone <repo> /opt/accommodation && cd /opt/accommodation
 cp .env.example .env
 $EDITOR .env
 ```
@@ -97,8 +121,8 @@ POSTGRES_PASSWORD=<random-strong-password>
 SECRET_KEY=$(openssl rand -hex 32)
 JWT_SECRET_KEY=$(openssl rand -hex 32)
 SUPERUSER_PASSWORD=<initial-admin-password>
-PUBLIC_BASE_URL=https://housing.example.com
-CORS_ORIGINS=https://housing.example.com
+PUBLIC_BASE_URL=https://accommodation.parisunitedgroup.com
+CORS_ORIGINS=https://accommodation.parisunitedgroup.com
 REDIS_URL=redis://redis:6379/0
 ```
 
@@ -115,7 +139,7 @@ permissions:
 
 ```bash
 ls -l deploy/ssl/
-# -rw-r--r--  origin.pem
+# -rw-r--r--  origin.crt
 # -rw-------  origin.key
 ```
 
@@ -142,16 +166,16 @@ no extra steps.
 
 ```bash
 # Public HTTPS through Cloudflare
-curl -I https://housing.example.com
+curl -I https://accommodation.parisunitedgroup.com
 # Expect:
 #   HTTP/2 200
 #   strict-transport-security: max-age=63072000; includeSubDomains; preload
 
 # HTTP redirect (Cloudflare "Always Use HTTPS" + nginx 301)
-curl -I http://housing.example.com
+curl -I http://accommodation.parisunitedgroup.com
 # Expect:
 #   HTTP/1.1 301 Moved Permanently
-#   location: https://housing.example.com/
+#   location: https://accommodation.parisunitedgroup.com/
 
 # Direct-to-origin attempt: blocked
 curl -Ik https://<YOUR_STATIC_PUBLIC_IP>
@@ -160,7 +184,7 @@ curl -Ik https://<YOUR_STATIC_PUBLIC_IP>
 ```
 
 Confirm the real client IP is reaching the backend (not just nginx's
-loopback) — open the browser to https://housing.example.com from any
+loopback) — open the browser to https://accommodation.parisunitedgroup.com from any
 external network, then on the host:
 
 ```bash
@@ -171,6 +195,110 @@ docker compose -f docker-compose.prod.yml logs backend --tail 20 | grep "request
 
 If `remote_addr` looks like an internal Docker IP, the Cloudflare
 ranges in `deploy/nginx.conf` have drifted — see the next section.
+
+---
+
+## Windows Docker host (Docker Desktop / WSL2)
+
+This deployment is supported on Windows with Docker Desktop. A few
+things differ from a Linux host — none of them require code changes,
+just runbook awareness.
+
+### 1. Path syntax in commands
+
+All `docker compose` commands work identically in **PowerShell**,
+**Command Prompt**, and **Git Bash**. The repo path itself can live
+on either NTFS (`C:\Users\You\Documents\Employee-Housing-Control-Portal`)
+or inside WSL2 (`\\wsl$\Ubuntu\home\you\...`). WSL2 is faster for I/O
+heavy operations (DB volumes, builds) but either works.
+
+The bind-mount path `./deploy/ssl` is relative to the compose file,
+so it resolves correctly regardless of host OS.
+
+### 2. Cert file permissions
+
+Linux's `chmod 600 origin.key` doesn't have an exact equivalent on
+NTFS, and Docker Desktop ignores POSIX permission bits on bind-mounts
+from NTFS anyway. Instead:
+
+1. Right-click `deploy\ssl\origin.key` → **Properties** → **Security**.
+2. Click **Advanced** → **Disable inheritance** → **Remove all
+   inherited permissions**.
+3. Add yourself with **Full control**.
+4. Add `Administrators` with **Full control**.
+5. (Optional) Add the local `SYSTEM` account if you run Docker as a
+   service.
+
+The runtime guarantee — that the container reads the key read-only —
+holds because the compose bind-mount uses `:ro`. The Windows ACL is
+defence in depth on the host filesystem.
+
+### 3. Line endings
+
+The Cloudflare dashboard ships PEM blocks with LF endings. If you
+paste them through Windows Notepad they may get saved as CRLF.
+Modern nginx (which we ship) tolerates CRLF in cert files, but some
+openssl pipelines don't. To be safe, save as **UTF-8 with LF**:
+
+- **VS Code**: bottom-right status bar → click `CRLF` → choose `LF`
+  → File → Save.
+- **Notepad++**: Edit → EOL Conversion → Unix (LF) → Save.
+- **PowerShell** one-liner to fix a file already saved as CRLF:
+  ```powershell
+  (Get-Content deploy\ssl\origin.crt -Raw).Replace("`r`n", "`n") |
+    Set-Content deploy\ssl\origin.crt -NoNewline
+  ```
+
+### 4. Firewall
+
+Windows Defender Firewall blocks inbound 80/443 by default. Docker
+Desktop adds rules for ports you publish in compose, but if traffic
+from your office router never reaches the container, manually allow:
+
+- **Settings** → **Privacy & security** → **Windows Security** →
+  **Firewall & network protection** → **Advanced settings** →
+  **Inbound Rules** → **New Rule** → **Port** → TCP **80, 443** →
+  **Allow** → all profiles → name it `cloudflare-origin`.
+
+If your office NAT forwards `<YOUR_STATIC_PUBLIC_IP>:80,443` →
+`<DOCKER_HOST_LAN_IP>:80,443`, the LAN IP must be reachable on the
+host's primary adapter. WSL2 binds Docker-Desktop-published ports to
+`0.0.0.0` on the Windows host automatically; you don't need to bridge
+the WSL VM separately.
+
+### 5. Docker Desktop resources
+
+For the full prod stack (Postgres + Redis + backend + worker + beat +
+frontend + nginx) plan on:
+
+| Resource     | Minimum   | Recommended |
+| ------------ | --------- | ----------- |
+| CPU          | 2 vCPU    | 4+ vCPU     |
+| RAM          | 4 GB      | 8 GB        |
+| Disk         | 10 GB     | 50 GB+      |
+
+Set these in Docker Desktop → **Settings** → **Resources**.
+
+### 6. Service / startup
+
+Docker Desktop runs in your user session by default. For an
+unattended server install (boots without an interactive login), use
+the **Docker Engine** service shipped via the Docker Desktop installer
+("Use the WSL 2 based engine" + sign in to Docker once, then enable
+"Start Docker Desktop when you log in"), or switch to a Windows
+Server box running Docker Engine for Windows directly.
+
+A typical office setup:
+1. Set the Windows account that owns Docker Desktop to auto-login
+   (`netplwiz` → uncheck the password requirement → confirm with a
+   real password).
+2. Enable Docker Desktop's "Start at login".
+3. Put `docker compose -f docker-compose.prod.yml up -d` into Task
+   Scheduler with a `On startup` trigger as a belt-and-braces fallback.
+
+The whole stack auto-restarts within the Docker Desktop engine (every
+service has `restart: unless-stopped`), so once Docker is up, the
+app is up.
 
 ---
 
@@ -204,8 +332,8 @@ A quick nightly snapshot:
 
 ```bash
 docker compose exec -T db pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | \
-  gzip > /var/backups/housing/db-$(date +%F).sql.gz
-tar -czf /var/backups/housing/uploads-$(date +%F).tgz \
+  gzip > /var/backups/accommodation/db-$(date +%F).sql.gz
+tar -czf /var/backups/accommodation/uploads-$(date +%F).tgz \
   -C /var/lib/docker/volumes/pug_uploads/_data .
 ```
 
@@ -218,10 +346,10 @@ Wire that into cron and you're done.
 Outside-the-repo actions an operator MUST take before go-live:
 
 - [ ] Generate Cloudflare Origin Certificate (15-year RSA, hostnames
-      include `housing.example.com`) and place
-      `deploy/ssl/origin.pem` + `deploy/ssl/origin.key` on the host
+      include `accommodation.parisunitedgroup.com`) and place
+      `deploy/ssl/origin.crt` + `deploy/ssl/origin.key` on the host
       with `0600` on the key.
-- [ ] Cloudflare DNS: A record `housing → <YOUR_STATIC_PUBLIC_IP>`,
+- [ ] Cloudflare DNS: A record `accommodation → <YOUR_STATIC_PUBLIC_IP>`,
       **Proxied** (orange cloud).
 - [ ] Cloudflare SSL/TLS: mode **Full (Strict)**, **Always Use HTTPS**
       on, **Minimum TLS Version 1.2**, HSTS enabled (12 mo, subdomains,
