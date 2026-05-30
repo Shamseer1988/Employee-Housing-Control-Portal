@@ -8,10 +8,19 @@ origin (first-party cookies, no CORS, no certs).
 ## Run it (Docker — recommended)
 
 ```bash
+cp backend/.env.example backend/.env     # first time only
 docker compose up -d --build
 ```
 
 Open **http://localhost:8080** — login `admin` / `ChangeMe123!`.
+
+All services (db, backend, worker, beat) read **`backend/.env`** via
+`env_file`, so Postgres and the app share one credentials file. The
+compose file only forces the network coordinates (`POSTGRES_HOST=db`,
+`REDIS_URL`, `BACKEND_INTERNAL_URL`). Editing `backend/.env` and
+re-running `docker compose up -d` is all you need to change secrets.
+(The stack still boots on built-in defaults if you skip the copy —
+`required: false`.)
 
 Services and host ports:
 - **frontend** → http://localhost:8080  ← the app

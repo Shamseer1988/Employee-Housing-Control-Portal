@@ -1,18 +1,24 @@
 # =============================================================================
-# LOCAL / DEV compose — no TLS, no nginx.
+# LOCAL / DEV stack — no TLS, no nginx.
 #
-# The Next.js frontend is the single entry point on http://localhost:8080.
-# It serves the UI and reverse-proxies /api/* to the backend over the
-# compose network (see frontend/next.config.mjs -> BACKEND_INTERNAL_URL),
-# so the browser only ever talks to one origin and the JWT cookies are
-# first-party. No certificates, no port 80, nothing to conflict with IIS
-# or other local services.
+# Single source of truth for config: **backend/.env** (copy it from
+# backend/.env.example before the first run). Every service that needs
+# DB / app secrets loads that same file via `env_file`, so Postgres
+# initdb and the backend agree on credentials by construction — exactly
+# like the PugWebApp setup. Only the compose-network coordinates
+# (POSTGRES_HOST=db, REDIS_URL, BACKEND_INTERNAL_URL) are forced in
+# `environment:` so they always point at the right container regardless
+# of what backend/.env says for native dev.
 #
+# The Next.js frontend is the single entry point on http://localhost:8080
+# and reverse-proxies /api/* to the backend over the compose network —
+# first-party cookies, no CORS, no certificates.
+#
+#     cp backend/.env.example backend/.env      # first time only
 #     docker compose up -d --build
-#     → open http://localhost:8080   (admin / ChangeMe123!)
+#     → http://localhost:8080   (admin / ChangeMe123!)
 #
-# For the LIVE deployment (Cloudflare Origin Cert + nginx TLS) use:
-#     docker compose -f docker-compose.prod.yml up -d --build
+# LIVE (Cloudflare TLS + nginx):  docker compose -f docker-compose.prod.yml up -d --build
 # =============================================================================
 
 name: pug-accommodation
@@ -21,7 +27,15 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    # Postgres reads POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB from
+    # backend/.env at first boot to run initdb — the same file the backend
+    # loads — so creds match by construction. required:false lets the
+    # stack still boot on the built-in defaults if the file is absent.
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
+      # Fallbacks so a missing backend/.env still yields a working DB.
       POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
       POSTGRES_USER: ${POSTGRES_USER:-pug}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug_local_dev_pw}
@@ -30,10 +44,12 @@ services:
     ports:
       - "${DB_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pug} -d ${POSTGRES_DB:-pug_accommodation}"]
-      interval: 10s
+      # $$ escapes to runtime so it resolves against the values env_file
+      # loaded inside the container, not at compose-interpolation time.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-pug} -d $${POSTGRES_DB:-pug_accommodation}"]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   redis:
     image: redis:7-alpine
@@ -54,26 +70,45 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Operator secrets (DB creds, JWT/SECRET keys, super-user) come from
+    # backend/.env — the same file the db service loaded above.
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
+      # Compose-network coordinates always win over backend/.env (which
+      # typically says localhost for native dev). The backend assembles
+      # its DATABASE_URL from POSTGRES_* when DATABASE_URL isn't set
+      # (see backend/config.py _database_uri()).
       FLASK_ENV: development
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug_local_dev_pw}@db:5432/${POSTGRES_DB:-pug_accommodation}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-12345}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-dev-secret-change-in-production-67890}
-      # Plain HTTP locally → cookies must NOT carry the Secure flag or the
-      # browser silently drops them and login "succeeds" but never sticks.
+      POSTGRES_HOST: db
+      # Clear any DATABASE_URL from backend/.env so the URL is
+      # assembled from POSTGRES_* against the db container, not
+      # localhost. environment: overrides env_file: in Compose.
+      DATABASE_URL: ""
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
+      POSTGRES_USER: ${POSTGRES_USER:-pug}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug_local_dev_pw}
+      REDIS_URL: redis://redis:6379/0
+      # Plain HTTP locally → cookies must NOT be Secure or the browser
+      # silently drops them and login "succeeds" but never sticks.
       JWT_COOKIE_SECURE: "false"
       JWT_COOKIE_SAMESITE: "Lax"
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      UPLOAD_FOLDER: /data/uploads
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-12345}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-dev-secret-change-in-production-67890}
       SUPERUSER_USERNAME: ${SUPERUSER_USERNAME:-admin}
       SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-admin@pugroup.local}
       SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD:-ChangeMe123!}
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
-    # Exposed so you can curl the API directly while debugging.
-    ports:
-      - "${BACKEND_PORT:-5000}:5000"
+      ENABLE_API_DOCS: "1"
     volumes:
       - pug_uploads:/data/uploads
+    ports:
+      # Direct API access for debugging (the app itself uses :8080).
+      - "${BACKEND_PORT:-5000}:5000"
     command: >
       sh -c "flask --app wsgi init-db &&
              flask --app wsgi migrate-all &&
@@ -89,12 +124,26 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
       FLASK_ENV: development
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug_local_dev_pw}@db:5432/${POSTGRES_DB:-pug_accommodation}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      POSTGRES_HOST: db
+      # Clear any DATABASE_URL from backend/.env so the URL is
+      # assembled from POSTGRES_* against the db container, not
+      # localhost. environment: overrides env_file: in Compose.
+      DATABASE_URL: ""
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
+      POSTGRES_USER: ${POSTGRES_USER:-pug}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug_local_dev_pw}
+      REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-12345}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-dev-secret-change-in-production-67890}
+      UPLOAD_FOLDER: /data/uploads
+    volumes:
+      - pug_uploads:/data/uploads
     command: ["celery", "-A", "celery_worker.celery", "worker", "--loglevel=info"]
 
   beat:
@@ -106,10 +155,21 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
       FLASK_ENV: development
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD:-pug_local_dev_pw}@db:5432/${POSTGRES_DB:-pug_accommodation}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      POSTGRES_HOST: db
+      # Clear any DATABASE_URL from backend/.env so the URL is
+      # assembled from POSTGRES_* against the db container, not
+      # localhost. environment: overrides env_file: in Compose.
+      DATABASE_URL: ""
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-pug_accommodation}
+      POSTGRES_USER: ${POSTGRES_USER:-pug}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pug_local_dev_pw}
+      REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-12345}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-dev-secret-change-in-production-67890}
     command: ["celery", "-A", "celery_worker.celery", "beat", "--loglevel=info"]

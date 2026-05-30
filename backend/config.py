@@ -19,14 +19,33 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _database_uri() -> str:
+    """Resolve the SQLAlchemy URI.
+
+    Priority:
+      1. DATABASE_URL — explicit, wins if set (back-compat / native dev).
+      2. Assembled from POSTGRES_* — the single-source model: the db
+         service and the backend both read the same POSTGRES_USER /
+         POSTGRES_PASSWORD / POSTGRES_DB from backend/.env, and compose
+         forces POSTGRES_HOST=db so the app targets the db container.
+      3. A localhost default for bare-metal dev.
+    """
+    explicit = os.getenv("DATABASE_URL")
+    if explicit:
+        return explicit
+    user = os.getenv("POSTGRES_USER", "postgres")
+    password = os.getenv("POSTGRES_PASSWORD", "postgres")
+    host = os.getenv("POSTGRES_HOST", "localhost")
+    port = os.getenv("POSTGRES_PORT", "5432")
+    db = os.getenv("POSTGRES_DB", "pug_accommodation")
+    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
+
+
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", DEV_DEFAULT_SECRET)
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", DEV_DEFAULT_JWT_SECRET)
 
-    SQLALCHEMY_DATABASE_URI = os.getenv(
-        "DATABASE_URL",
-        "postgresql+psycopg2://postgres:postgres@localhost:5432/pug_accommodation",
-    )
+    SQLALCHEMY_DATABASE_URI = _database_uri()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")]
