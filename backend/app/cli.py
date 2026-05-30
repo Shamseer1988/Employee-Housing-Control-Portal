@@ -87,6 +87,37 @@ def register_commands(app: Flask) -> None:
             click.echo(f"  → {k}: {v}")
         click.echo("Done. Sign in as admin and explore.")
 
+    @app.cli.command("wait-for-db")
+    @click.option("--timeout", default=60, show_default=True,
+                  help="Seconds to keep retrying before giving up.")
+    def wait_for_db(timeout):
+        """Block until the database accepts a connection.
+
+        depends_on:service_healthy in compose only proves Postgres is up
+        inside its own container; cross-container DNS on Docker Desktop /
+        WSL2 can lag a few seconds after the network is (re)created. This
+        polls ``SELECT 1`` so the boot chain waits instead of crash-looping
+        on a transient ``could not translate host name "db"``.
+        """
+        import time
+        from sqlalchemy import text
+
+        deadline = time.time() + timeout
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                with db.engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                click.echo(f"Database reachable (attempt {attempt}).")
+                return
+            except Exception as exc:  # noqa: BLE001 — any driver/DNS error retries
+                if time.time() >= deadline:
+                    click.echo(f"Database not reachable after {timeout}s: {exc}")
+                    raise SystemExit(1)
+                click.echo(f"  waiting for database (attempt {attempt})...")
+                time.sleep(2)
+
     @app.cli.command("init-db")
     def init_db():
         """Create all tables from the SQLAlchemy models.
