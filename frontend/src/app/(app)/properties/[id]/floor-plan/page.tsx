@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { ArrowLeft, BedDouble } from "lucide-react";
+import { ArrowLeft, BedDouble, Printer } from "lucide-react";
 import { api } from "@/lib/api";
 import { useRouteParams } from "@/lib/use-route-params";
 import { useEvents } from "@/lib/use-events";
@@ -153,8 +153,10 @@ export default function FloorPlanPage({ params }: { params: Promise<{ id: string
     qc.invalidateQueries({ queryKey: ["properties", "structure", id] });
   };
 
+  const printedOn = new Date().toLocaleString();
+
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="floorplan-print-root space-y-6 animate-fade-in print:space-y-3">
       <div className="print:hidden">
         <Link href={`/properties/${id}`} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3.5 w-3.5" /> Back to property
@@ -169,6 +171,9 @@ export default function FloorPlanPage({ params }: { params: Promise<{ id: string
           <p className="text-sm text-muted-foreground print:hidden">
             Hover a bed for occupant details; click to assign, view or take it out of service.
           </p>
+          <p className="hidden print:block text-xs text-black/70 mt-1">
+            Generated {printedOn}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[10px]">
           {Object.entries(TONES).map(([k, t]) => (
@@ -177,6 +182,14 @@ export default function FloorPlanPage({ params }: { params: Promise<{ id: string
               {t.label}
             </div>
           ))}
+          <button
+            type="button"
+            onClick={() => window.print()}
+            aria-label="Print floor plan"
+            className="print:hidden inline-flex items-center gap-1 rounded-md border border-border bg-card/60 px-2 py-1 text-xs hover:bg-accent"
+          >
+            <Printer className="h-3.5 w-3.5" /> Print
+          </button>
         </div>
       </div>
 
@@ -199,7 +212,10 @@ export default function FloorPlanPage({ params }: { params: Promise<{ id: string
         />
       )}
       {structureQ.data && structureQ.data.map((f) => (
-        <section key={f.id} className="space-y-3 print:break-inside-avoid">
+        <section
+          key={f.id}
+          className="floorplan-page space-y-3 print:break-inside-avoid"
+        >
           <div className="flex items-baseline gap-3">
             <h2 className="text-lg font-medium">Floor {f.floor_number}</h2>
             <div className="text-xs text-muted-foreground">
@@ -228,3 +244,8 @@ export default function FloorPlanPage({ params }: { params: Promise<{ id: string
     </div>
   );
 }
+
+// Print styles for this page live in src/app/globals.css under
+// `@media print`. They key off the `.floorplan-page` class added to each
+// floor section and the `.floorplan-print-root` class on the outer
+// wrapper, so nothing leaks into the rest of the app.

@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Building2, Paperclip, FileText, Layers, BedDouble,
-  Calendar, AlertTriangle, Plus, Pencil, Trash2,
+  Calendar, AlertTriangle, Plus, Pencil, Trash2, Hash,
   SlidersHorizontal,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -501,6 +501,7 @@ function FloorsTab({ propertyId }: { propertyId: number }) {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Floor | null>(null);
+  const [renumber, setRenumber] = useState<Floor | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -564,12 +565,23 @@ function FloorsTab({ propertyId }: { propertyId: number }) {
                   </span>
                 </td>
                 <td className="py-2 px-3 text-right">
+                  <Can perm="room.manage">
+                    <button onClick={() => setRenumber(f)}
+                      disabled={f.room_count === 0}
+                      title={f.room_count === 0 ? "No rooms to renumber" : "Renumber all rooms on this floor"}
+                      aria-label={`Renumber rooms on floor ${f.floor_number}`}
+                      className="h-8 w-8 grid place-items-center rounded-md hover:bg-accent inline-block disabled:opacity-40 disabled:cursor-not-allowed">
+                      <Hash className="h-3.5 w-3.5" />
+                    </button>
+                  </Can>
                   <Can perm="floor.manage">
                     <button onClick={() => { setEditing(f); setShowForm(true); }}
+                      aria-label={`Edit floor ${f.floor_number}`}
                       className="h-8 w-8 grid place-items-center rounded-md hover:bg-accent inline-block">
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button onClick={() => remove(f)}
+                      aria-label={`Delete floor ${f.floor_number}`}
                       className="h-8 w-8 grid place-items-center rounded-md hover:bg-destructive/10 text-destructive inline-block">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -585,7 +597,132 @@ function FloorsTab({ propertyId }: { propertyId: number }) {
         onClose={() => setShowForm(false)}
         onSaved={async () => { setShowForm(false); await load(); }}
       />
+      <RenumberRoomsDialog
+        propertyId={propertyId}
+        floor={renumber}
+        onClose={() => setRenumber(null)}
+        onDone={async () => { setRenumber(null); await load(); }}
+      />
     </div>
+  );
+}
+
+type RenumberDiff = { room_id: number; old_room_number: string; new_room_number: string };
+
+function RenumberRoomsDialog({ propertyId, floor, onClose, onDone }: {
+  propertyId: number;
+  floor: Floor | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [prefix, setPrefix] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [forceRequired, setForceRequired] = useState<{ occupied: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (floor) { setPrefix(""); setBusy(false); setForceRequired(null); setError(null); }
+  }, [floor]);
+
+  if (!floor) return <Modal open={false} onClose={onClose} title="">{null}</Modal>;
+
+  // Mirror the backend numbering algorithm so the preview matches.
+  const raw = floor.floor_number;
+  let floorSeq: string;
+  if (raw === "G" || (raw.startsWith("G") && raw.length > 1 && raw.slice(1).split("").every((c) => /[A-Za-z]/.test(c)))) {
+    floorSeq = "G";
+  } else {
+    const digits = raw.replace(/[^0-9]/g, "");
+    floorSeq = digits || raw;
+  }
+  const n = Math.max(0, floor.room_count);
+  const pad = Math.max(2, String(n).length);
+  const sample = Array.from({ length: Math.min(n, 4) }, (_, i) =>
+    `${prefix}${floorSeq}${String(i + 1).padStart(pad, "0")}`,
+  );
+
+  const submit = async (force: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const resp = await api.post(
+        `/properties/${propertyId}/floors/${floor.id}/renumber-rooms`,
+        { room_prefix: prefix, force },
+      );
+      const data = resp.data?.data as { renamed: number; diff?: RenumberDiff[] };
+      toast.success(
+        `${data.renamed} room${data.renamed === 1 ? "" : "s"} renumbered`,
+        data.diff && data.diff.length
+          ? `${data.diff[0].old_room_number} → ${data.diff[0].new_room_number}${data.diff.length > 1 ? `, +${data.diff.length - 1} more` : ""}`
+          : undefined,
+      );
+      onDone();
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { details?: { force_required?: boolean; occupied?: number }; message?: string } } };
+      if (e.response?.status === 409 && e.response.data?.details?.force_required) {
+        setForceRequired({ occupied: e.response.data.details.occupied ?? 0 });
+      } else {
+        setError(errorMessage(err));
+        toast.error("Renumber failed", errorMessage(err));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open={Boolean(floor)} onClose={onClose} title={`Renumber rooms — Floor ${floor.floor_number}`}>
+      <div className="space-y-4">
+        <div className="text-sm text-muted-foreground">
+          Rewrites every room number on this floor using
+          {" "}<span className="font-mono">{`{prefix}${floorSeq}{nn}`}</span>.
+          Bed codes recompute automatically.
+        </div>
+        <Field label="New room prefix">
+          <input
+            autoFocus
+            className={inputClass}
+            value={prefix}
+            onChange={(e) => { setPrefix(e.target.value); setForceRequired(null); }}
+            placeholder='e.g. "R" or leave empty'
+          />
+        </Field>
+        {n > 0 && (
+          <div className="text-xs rounded-md bg-background/40 border border-border px-3 py-2 font-mono">
+            Preview: {sample.join(", ")}{n > 4 ? `, …${prefix}${floorSeq}${String(n).padStart(pad, "0")}` : ""}
+          </div>
+        )}
+        {forceRequired && (
+          <div className="rounded-lg border-2 border-amber-500/60 bg-amber-500/5 p-3 space-y-2 text-sm">
+            <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="h-4 w-4" />
+              {forceRequired.occupied} bed{forceRequired.occupied === 1 ? "" : "s"} occupied on this floor
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Renaming rooms also rewrites every bed_code in them — confirm to apply the change anyway. The audit log will record the force flag.
+            </div>
+          </div>
+        )}
+        {error && <div className="text-xs text-destructive">{error}</div>}
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose}
+            className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">
+            Cancel
+          </button>
+          {forceRequired ? (
+            <button type="button" disabled={busy} onClick={() => submit(true)}
+              className="h-9 rounded-md bg-amber-600 px-4 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60">
+              {busy ? "Forcing…" : "Force renumber"}
+            </button>
+          ) : (
+            <button type="button" disabled={busy} onClick={() => submit(false)}
+              className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
+              {busy ? "Renumbering…" : `Renumber ${n} room${n === 1 ? "" : "s"}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -785,8 +922,10 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
 }) {
   const [form, setForm] = useState<Record<string, unknown>>({});
   const [autoCreateBeds, setAutoCreateBeds] = useState(true);
-  const [units, setUnits] = useState<number>(2);
-  const [unitType, setUnitType] = useState<UnitType>("single");
+  // Phase 7 follow-up: heterogeneous unit list. Each entry is the type of
+  // one physical bed frame. Order matters — the backend numbers units
+  // 1..N in this order, so the sequence drives bed numbers.
+  const [unitList, setUnitList] = useState<UnitType[]>(["single", "single"]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -796,18 +935,25 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
     } else {
       setForm({ room_type: "shared", allowed_gender: "any", has_bathroom: false, has_ac: true });
       setAutoCreateBeds(true);
-      setUnits(2);
-      setUnitType("single");
+      setUnitList(["single", "single"]);
     }
   }, [editing, open]);
 
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
 
-  // New-mode derived capacity. Clamp here so the preview matches what we POST.
-  const safeUnits = Math.max(1, Math.min(MAX_BED_UNITS, Math.floor(units || 1)));
-  const slotsPerUnit = unitType === "bunk" ? 2 : 1;
-  const derivedCapacity = safeUnits * slotsPerUnit;
+  // Derived counts for new-room mode.
+  const singleCount = unitList.filter((t) => t === "single").length;
+  const bunkCount = unitList.filter((t) => t === "bunk").length;
+  const derivedCapacity = unitList.reduce((sum, t) => sum + (t === "bunk" ? 2 : 1), 0);
   const minEditCapacity = Math.max(1, editing?.bed_counts.total ?? 1);
+
+  const addUnit = (t: UnitType) => {
+    if (unitList.length >= MAX_BED_UNITS) return;
+    setUnitList((u) => [...u, t]);
+  };
+  const removeUnit = (idx: number) => {
+    setUnitList((u) => u.filter((_, i) => i !== idx));
+  };
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -818,22 +964,30 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
         toast.success(`Room ${editing.room_number} updated`);
       } else {
         if (!floorId) throw new Error("No floor selected");
-        const roomPayload = { ...form, capacity: derivedCapacity };
+        if (autoCreateBeds && unitList.length === 0) {
+          throw new Error("Add at least one bed unit, or uncheck Auto-create");
+        }
+        const capacityForRoom = autoCreateBeds ? derivedCapacity : Math.max(1, derivedCapacity);
+        const roomPayload = { ...form, capacity: capacityForRoom };
         const resp = await api.post(`/floors/${floorId}/rooms`, roomPayload);
         const newRoom = resp.data?.data;
         let bedsCreated = 0;
         if (autoCreateBeds && newRoom?.id) {
-          const unitsArr = Array.from({ length: safeUnits }, () => ({ type: unitType }));
+          const unitsArr = unitList.map((type) => ({ type }));
           const bulkResp = await api.post(`/rooms/${newRoom.id}/beds/bulk`, { units: unitsArr });
           bedsCreated = bulkResp.data?.data?.count ?? 0;
         }
         const roomLabel = newRoom?.room_number ?? "";
-        toast.success(
-          `Room ${roomLabel} created`,
-          bedsCreated > 0
-            ? `${bedsCreated} bed${bedsCreated === 1 ? "" : "s"} added (${safeUnits} ${unitType}${safeUnits === 1 ? "" : "s"}).`
-            : undefined,
-        );
+        const detail = bedsCreated > 0
+          ? `${bedsCreated} bed${bedsCreated === 1 ? "" : "s"} added` +
+            (bunkCount > 0 || singleCount > 0
+              ? ` (${[
+                  singleCount > 0 ? `${singleCount} single` : null,
+                  bunkCount > 0 ? `${bunkCount} bunk` : null,
+                ].filter(Boolean).join(" + ")})`
+              : "")
+          : undefined;
+        toast.success(`Room ${roomLabel} created`, detail);
       }
       onSaved();
     } catch (err: unknown) {
@@ -896,54 +1050,85 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
             </div>
           </Field>
         ) : (
-          <div className="grid grid-cols-3 gap-3">
-            <Field label="Bed frames (units)">
-              <input
-                type="number"
-                min={1}
-                max={MAX_BED_UNITS}
-                className={inputClass}
-                value={units}
-                onChange={(e) => setUnits(Math.max(1, Math.min(MAX_BED_UNITS, Math.floor(Number(e.target.value) || 1))))}
-              />
-            </Field>
-            <Field label="Bed type">
-              <div className="flex items-center gap-3 h-9">
-                <label className="inline-flex items-center gap-1.5 text-sm">
-                  <input type="radio" name="unitType" checked={unitType === "single"} onChange={() => setUnitType("single")} />
-                  Single
-                </label>
-                <label className="inline-flex items-center gap-1.5 text-sm">
-                  <input type="radio" name="unitType" checked={unitType === "bunk"} onChange={() => setUnitType("bunk")} />
-                  Bunk
-                </label>
+          <div className="rounded-lg border border-border bg-card/40 p-3 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <div className="text-sm font-medium">Bed frames in this room</div>
+                <div className="text-xs text-muted-foreground">
+                  Mix single and bunk frames freely. Sleeping capacity updates as you go.
+                </div>
               </div>
-            </Field>
-            <Field label="Sleeping capacity">
-              <div className="h-9 flex items-center text-sm">
-                <span className="font-semibold">{derivedCapacity}</span>&nbsp;
-                <span className="text-muted-foreground">person{derivedCapacity === 1 ? "" : "s"}</span>
+              <div className="text-sm">
+                <span className="font-semibold">{derivedCapacity}</span>
+                <span className="text-muted-foreground"> sleeping slot{derivedCapacity === 1 ? "" : "s"}</span>
+                {" · "}
+                <span className="font-mono text-xs">{unitList.length} frame{unitList.length === 1 ? "" : "s"}</span>
               </div>
-            </Field>
-          </div>
-        )}
+            </div>
 
-        {!editing && (
-          <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
-            <label className="inline-flex items-start gap-2 text-sm cursor-pointer">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => addUnit("single")}
+                disabled={unitList.length >= MAX_BED_UNITS}
+                className="h-8 inline-flex items-center gap-1 rounded-md border border-border bg-card/60 px-3 text-xs hover:bg-accent disabled:opacity-50"
+              >
+                <Plus className="h-3 w-3" /> Add single
+              </button>
+              <button
+                type="button"
+                onClick={() => addUnit("bunk")}
+                disabled={unitList.length >= MAX_BED_UNITS}
+                className="h-8 inline-flex items-center gap-1 rounded-md border border-border bg-card/60 px-3 text-xs hover:bg-accent disabled:opacity-50"
+              >
+                <Plus className="h-3 w-3" /> Add bunk
+              </button>
+              {unitList.length >= MAX_BED_UNITS && (
+                <div className="text-xs text-muted-foreground">Cap: {MAX_BED_UNITS} frames per room</div>
+              )}
+            </div>
+
+            {unitList.length === 0 ? (
+              <div className="text-xs text-muted-foreground italic rounded-md border border-dashed border-border px-3 py-3 text-center">
+                No bed frames yet. Add some — or uncheck &ldquo;Auto-create&rdquo; below and add beds manually after creating the room.
+              </div>
+            ) : (
+              <ul className="space-y-1.5">
+                {unitList.map((t, idx) => (
+                  <li key={idx} className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-3 py-1.5 text-sm">
+                    <span className="inline-flex items-center gap-2">
+                      <span className="font-mono text-xs text-muted-foreground w-5 text-right">{idx + 1}.</span>
+                      <span className="capitalize">{t}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {t === "bunk"
+                          ? <>(2 beds — <span className="font-mono">{idx + 1}L</span>, <span className="font-mono">{idx + 1}U</span>)</>
+                          : <>(<span className="font-mono">{idx + 1}</span>)</>}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeUnit(idx)}
+                      aria-label={`Remove unit ${idx + 1}`}
+                      className="h-7 w-7 grid place-items-center rounded-md hover:bg-destructive/10 text-destructive"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <label className="inline-flex items-start gap-2 text-sm cursor-pointer pt-1 border-t border-border">
               <input
                 type="checkbox"
                 checked={autoCreateBeds}
                 onChange={(e) => setAutoCreateBeds(e.target.checked)}
-                className="mt-0.5"
+                className="mt-1"
               />
               <span>
-                <span className="font-medium">Automatically add {derivedCapacity} bed{derivedCapacity === 1 ? "" : "s"}</span>
+                <span className="font-medium">Auto-create the beds with the room</span>
                 <span className="block text-xs text-muted-foreground">
-                  {unitType === "bunk"
-                    ? <>Creates {safeUnits} bunk frame{safeUnits === 1 ? "" : "s"} = {derivedCapacity} sleeping slots, numbered <span className="font-mono">1L, 1U, 2L, 2U…</span></>
-                    : <>Creates {derivedCapacity} single bed{derivedCapacity === 1 ? "" : "s"} numbered <span className="font-mono">1…{derivedCapacity}</span></>}
-                  . Skip if your room is mixed; you can add beds manually afterwards.
+                  Posts the unit list to <span className="font-mono">/rooms/&#123;id&#125;/beds/bulk</span> right after the room is created. Uncheck to create the room only.
                 </span>
               </span>
             </label>
@@ -955,8 +1140,18 @@ function RoomDialog({ open, floorId, floors, editing, onClose, onSaved }: {
         </Field>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-border bg-card/60 px-3 text-sm">Cancel</button>
-          <button type="submit" disabled={busy} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-            {busy ? "Saving…" : (editing ? "Save changes" : autoCreateBeds ? `Create room + ${derivedCapacity} bed${derivedCapacity === 1 ? "" : "s"}` : "Create room")}
+          <button
+            type="submit"
+            disabled={busy || (!editing && autoCreateBeds && unitList.length === 0)}
+            className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+          >
+            {busy
+              ? "Saving…"
+              : editing
+                ? "Save changes"
+                : autoCreateBeds
+                  ? `Create room + ${derivedCapacity} bed${derivedCapacity === 1 ? "" : "s"}`
+                  : "Create room"}
           </button>
         </div>
       </form>
