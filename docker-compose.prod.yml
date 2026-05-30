@@ -77,7 +77,8 @@ services:
     volumes:
       - pug_uploads:/data/uploads
     command: >
-      sh -c "flask --app wsgi init-db &&
+      sh -c "flask --app wsgi wait-for-db &&
+             flask --app wsgi init-db &&
              flask --app wsgi migrate-all &&
              flask --app wsgi seed &&
              gunicorn -c gunicorn.conf.py wsgi:app"
