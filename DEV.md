@@ -1,104 +1,75 @@
-# Local development quickstart
+# Local development
 
-This is the **PC / laptop** runbook. Plain HTTP on port 80, no TLS, no
-Cloudflare allowlist, dev secrets fine. Uses `docker-compose.yml`.
+The local stack runs **without nginx and without TLS**. The Next.js
+frontend is the single entry point and reverse-proxies `/api/*` to the
+backend over the Docker network, so the browser only ever talks to one
+origin (first-party cookies, no CORS, no certs).
 
-For the production deployment with Cloudflare TLS see [`DEPLOY.md`](./DEPLOY.md).
-
----
-
-## 1. Boot the stack
+## Run it (Docker — recommended)
 
 ```bash
 docker compose up -d --build
 ```
 
-That's it. No `.env` required — every var has a dev-safe default
-(`pug-local-pass`, `dev-secret-key-padded-to-32-chars`, `ChangeMe123!` etc.).
+Open **http://localhost:8080** — login `admin` / `ChangeMe123!`.
 
-First boot creates the schema (`flask init-db`), applies any pending
-phase migrations (`flask migrate-all`), and seeds permissions + roles +
-the super user. Worker and beat connect to Redis automatically.
+Services and host ports:
+- **frontend** → http://localhost:8080  ← the app
+- **backend**  → http://localhost:5000  (direct API access for debugging)
+- **db**       → localhost:5432 (Postgres)
+- **redis**, **worker**, **beat** → internal only
 
-Open <http://localhost> and log in:
-
-|          |             |
-| -------- | ----------- |
-| Username | `admin`     |
-| Password | `ChangeMe123!` |
-
-## 2. What's running
-
+Change the app port if 8080 is taken:
+```bash
+APP_PORT=9000 docker compose up -d
 ```
-http://localhost          → Next.js frontend (via nginx)
-http://localhost/api/v1/* → Flask backend (via nginx)
-http://localhost/docs     → Swagger UI (dev-only)
-http://localhost:5000     → backend direct (skips nginx)
-http://localhost:3000     → frontend direct (skips nginx)
-localhost:5432            → Postgres (for psql / pgAdmin)
+
+Stop: `docker compose down`  ·  Wipe data: `docker compose down -v`
+
+### Why no nginx locally?
+nginx is only needed to terminate TLS and enforce the Cloudflare edge
+allowlist — both production concerns. Locally the frontend's built-in
+proxy does the `/api` routing, so there's nothing for nginx to add and
+one less moving part (no port 80 clash with IIS, no cert files).
+
+Cookies are issued **without** the `Secure` flag locally
+(`JWT_COOKIE_SECURE=false`) so the browser keeps them over plain HTTP —
+the usual cause of "login succeeds then bounces back to /login".
+
+## Run it (native, fastest iteration)
+
+Backend:
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+flask --app wsgi init-db && flask --app wsgi seed
+flask --app wsgi run --debug --port 5000
 ```
+
+Frontend:
+```bash
+cd frontend
+npm install
+npm run dev      # http://localhost:3000, proxies /api to :5000
+```
+
+## Tests
 
 ```bash
-docker compose ps                  # all 7 services
-docker compose logs -f backend     # tail (JSON when LOG_JSON=true)
-docker compose logs -f worker beat
-docker compose down                # stop, keep data
-docker compose down -v             # stop + wipe Postgres + uploads
+cd backend  && pytest -q
+cd frontend && npm run type-check && npm test && npm run build
 ```
 
-## 3. Useful one-shots
+> Run `npm run build` too — `tsc`/`vitest` accept some things the
+> production `next build` rejects (e.g. stray named exports from a
+> `page.tsx`), and the Docker image uses `next build`.
+
+## Production
+
+Live deployment (Cloudflare → nginx TLS → app) is a separate compose
+file and is documented in **DEPLOY.md**:
 
 ```bash
-# Seed realistic demo data (landlords / properties / employees)
-docker compose exec backend flask --app wsgi seed-demo
-
-# Run a Celery task synchronously without a worker
-docker compose exec backend flask --app wsgi run-job daily_expiry_sweep
-
-# Drop into a Python REPL with the Flask app context
-docker compose exec backend flask --app wsgi shell
-
-# psql against the running Postgres
-docker compose exec db psql -U pug -d pug_accommodation
-```
-
-## 4. Override defaults
-
-Drop a `.env` next to `docker-compose.yml` with any overrides — see
-`.env.example` for the full list. Common ones:
-
-```dotenv
-HTTP_PORT=8080                 # if port 80 is in use
-POSTGRES_PORT=15432            # if you already run Postgres
-SUPERUSER_PASSWORD=mybetterpw
-```
-
-## 5. Upgrading from an older volume
-
-If `docker compose up` crashes with `column users.token_version does not
-exist`, you have a pre-Phase-1 Postgres volume. The boot now runs
-`flask migrate-all` automatically, which catches the volume up to head
-on the next start. If it didn't (older image cached), just rebuild:
-
-```bash
-docker compose down
-docker compose up -d --build backend
-docker compose logs backend | tail -20    # should show "Running all phase migrations..."
-```
-
-To force a clean slate instead: `docker compose down -v` (deletes
-Postgres data and uploaded files).
-
-## 6. Tests
-
-```bash
-# Backend (inside the container — uses the same image as the running stack)
-docker compose exec backend pytest -q
-
-# Frontend
-cd frontend && npm ci && npm test && npm run type-check
-
-# Playwright E2E vs the local stack
-cd frontend && npm run e2e:install && \
-  E2E_BASE_URL=http://localhost npm run e2e
+docker compose -f docker-compose.prod.yml up -d --build
 ```

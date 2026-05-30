@@ -62,6 +62,10 @@ services:
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
       CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS (no '*' in production)}
+      # Served over HTTPS (Cloudflare → nginx TLS) so the auth cookies
+      # MUST be Secure. SameSite=Lax is correct for a same-origin SPA.
+      JWT_COOKIE_SECURE: "true"
+      JWT_COOKIE_SAMESITE: "Lax"
       UPLOAD_FOLDER: /data/uploads
       SUPERUSER_USERNAME: ${SUPERUSER_USERNAME:-admin}
       SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-admin@pugroup.local}
@@ -127,6 +131,10 @@ services:
       - backend
     environment:
       NODE_ENV: production
+      # Server-side proxy target for /api/* (SSR / direct :3000 hits).
+      # The browser uses relative /api/* through nginx. See
+      # next.config.mjs rewrites().
+      BACKEND_INTERNAL_URL: http://backend:5000
 
   nginx:
     build:

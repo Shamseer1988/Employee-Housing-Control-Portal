@@ -12,6 +12,13 @@ DEV_DEFAULT_JWT_SECRET = "dev-jwt-secret"
 MIN_SECRET_BYTES = 32
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", DEV_DEFAULT_SECRET)
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", DEV_DEFAULT_JWT_SECRET)
@@ -37,9 +44,13 @@ class Config:
     JWT_CSRF_IN_COOKIES = True
     JWT_ACCESS_COOKIE_PATH = "/api/v1"
     JWT_REFRESH_COOKIE_PATH = "/api/v1/auth/refresh"
-    # SameSite + Secure defaults are tightened in ProductionConfig.
-    JWT_COOKIE_SAMESITE = "Lax"
-    JWT_COOKIE_SECURE = False
+    # Cookie flags are env-driven so the same image serves both flavours:
+    #   LOCAL (plain HTTP):  JWT_COOKIE_SECURE=false  → browser keeps cookie
+    #   LIVE  (HTTPS/CF):    JWT_COOKIE_SECURE=true   → cookie HTTPS-only
+    # Defaults below are the safe DEV defaults; ProductionConfig flips the
+    # baseline to secure so a prod boot without the env var is still safe.
+    JWT_COOKIE_SAMESITE = os.getenv("JWT_COOKIE_SAMESITE", "Lax")
+    JWT_COOKIE_SECURE = _env_bool("JWT_COOKIE_SECURE", False)
 
     # --- Phase 2: rate limiting ------------------------------------------
     # If REDIS_URL is set the limiter and (later) Celery share it. Without
@@ -88,9 +99,10 @@ class TestingConfig(Config):
 class ProductionConfig(Config):
     DEBUG = False
     ENV = "production"
-    # Cookies must be sent over HTTPS only and never cross-site in prod.
-    JWT_COOKIE_SECURE = True
-    JWT_COOKIE_SAMESITE = "Strict"
+    # Secure baseline for prod: HTTPS-only cookies. Still env-overridable
+    # (e.g. a staging box behind plain HTTP) but defaults to safe.
+    JWT_COOKIE_SECURE = _env_bool("JWT_COOKIE_SECURE", True)
+    JWT_COOKIE_SAMESITE = os.getenv("JWT_COOKIE_SAMESITE", "Lax")
     LOG_JSON = True
 
     @classmethod
