@@ -64,15 +64,24 @@ def subscribe(channel: str) -> Iterator[str]:
     framed as an SSE `data: ...\\n\\n` block."""
     r = _redis()
     if r is not None:
-        pubsub = r.pubsub()
+        pubsub = r.pubsub(ignore_subscribe_messages=True)
         pubsub.subscribe(f"pug:{channel}")
         try:
-            for msg in pubsub.listen():
-                if msg.get("type") == "message":
-                    body = msg.get("data")
-                    if isinstance(body, bytes):
-                        body = body.decode("utf-8", "replace")
-                    yield body
+            while True:
+                # Poll with a timeout so the caller (the SSE route) gets
+                # a chance to emit keepalives and to honor its own
+                # max-stream deadline. listen() would block forever
+                # waiting for the next message and starve both.
+                msg = pubsub.get_message(timeout=15.0)
+                if msg is None:
+                    yield ""  # keepalive tick
+                    continue
+                if msg.get("type") != "message":
+                    continue
+                body = msg.get("data")
+                if isinstance(body, bytes):
+                    body = body.decode("utf-8", "replace")
+                yield body
         finally:
             try:
                 pubsub.close()

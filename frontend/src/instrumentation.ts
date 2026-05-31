@@ -1,0 +1,55 @@
+// Node-side instrumentation. Runs ONCE at server boot.
+//
+// Why this file exists: Next.js `rewrites()` proxies /api/* to the
+// Flask backend using Node's built-in fetch (undici). undici aggressively
+// pools HTTP keep-alive sockets. If gunicorn closes a pooled socket
+// first — worker recycle, idle keepalive timeout, container restart —
+// undici cheerfully reuses the dead socket and the request fails with
+// `Error: socket hang up` / ECONNRESET. The user sees "freeze" / random
+// failed requests in bursts because the whole pool dies at once.
+//
+// Fix: wrap the default Agent in a RetryAgent so transient socket
+// errors (ECONNRESET, UND_ERR_SOCKET, etc.) on idempotent requests are
+// retried once on a fresh connection — invisible to the caller.
+// Also keep the client-side keepalive UNDER gunicorn's (75s) so we
+// always close the socket before the server does.
+export async function register() {
+  if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  // `undici` ships inside Node.js (and is bundled by Next.js) but isn't
+  // declared in package.json — types aren't visible to tsc, so suppress
+  // the resolution error. The import works at runtime.
+  // @ts-expect-error - undici has no published types in our deps
+  const { setGlobalDispatcher, Agent, RetryAgent } = await import("undici");
+
+  const base = new Agent({
+    keepAliveTimeout: 30_000,
+    keepAliveMaxTimeout: 60_000,
+    pipelining: 1,
+    connect: { timeout: 10_000 },
+    // Long SSE streams must not be killed by the agent's body timeout.
+    bodyTimeout: 0,
+    headersTimeout: 30_000,
+  });
+
+  setGlobalDispatcher(
+    new RetryAgent(base, {
+      maxRetries: 2,
+      minTimeout: 100,
+      maxTimeout: 1_000,
+      timeoutFactor: 2,
+      retryAfter: false,
+      methods: ["GET", "HEAD", "OPTIONS", "PUT", "DELETE"],
+      statusCodes: [],
+      errorCodes: [
+        "ECONNRESET",
+        "ECONNREFUSED",
+        "ENOTFOUND",
+        "ENETDOWN",
+        "ENETUNREACH",
+        "EHOSTDOWN",
+        "UND_ERR_SOCKET",
+        "UND_ERR_CONNECT_TIMEOUT",
+      ],
+    }),
+  );
+}
