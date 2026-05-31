@@ -70,9 +70,15 @@ export function Field({ label, children, span = 1 }: { label: string; children: 
 }
 
 export const inputClass =
-  "w-full h-9 rounded-md border border-input bg-card/60 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
+  "w-full h-9 rounded-md border border-input bg-background px-3 text-sm " +
+  "placeholder:text-muted-foreground/70 " +
+  "focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring " +
+  "disabled:opacity-50 disabled:cursor-not-allowed";
 
 export const textareaClass =
-  "w-full min-h-[80px] rounded-md border border-input bg-card/60 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
+  "w-full min-h-[80px] rounded-md border border-input bg-background p-3 text-sm " +
+  "placeholder:text-muted-foreground/70 " +
+  "focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring " +
+  "disabled:opacity-50 disabled:cursor-not-allowed";
 
 export const selectClass = inputClass;
