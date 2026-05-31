@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { ArrowLeft, Printer, Layers, DoorClosed, BedDouble } from "lucide-react";
+import { ArrowLeft, Printer, Layers, DoorClosed, BedDouble, ChevronDown, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { api } from "@/lib/api";
 import { useRouteParams } from "@/lib/use-route-params";
 import { useEvents } from "@/lib/use-events";
@@ -203,6 +203,45 @@ export default function FloorPlanPage({ params }: { params: Promise<{ id: string
     return t;
   }, [structureQ.data]);
 
+  // Per-floor collapse state, persisted so refreshing the page doesn't
+  // re-expand a long list the operator just tidied up. Keyed by property
+  // so two properties don't share state.
+  const collapseKey = `pug.floorplan.collapsed.${id}`;
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [collapseLoaded, setCollapseLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!id) return;
+    try {
+      const raw = window.localStorage.getItem(collapseKey);
+      if (raw) setCollapsed(new Set(JSON.parse(raw) as string[]));
+    } catch { /* ignore */ }
+    setCollapseLoaded(true);
+  }, [collapseKey, id]);
+
+  useEffect(() => {
+    if (!collapseLoaded) return;
+    try {
+      window.localStorage.setItem(collapseKey, JSON.stringify([...collapsed]));
+    } catch { /* ignore */ }
+  }, [collapsed, collapseKey, collapseLoaded]);
+
+  const toggleFloor = (floorId: number | string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      const key = String(floorId);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const collapseAll = () => {
+    if (!structureQ.data) return;
+    setCollapsed(new Set(structureQ.data.map((f) => String(f.id))));
+  };
+  const expandAll = () => setCollapsed(new Set());
+
   const onSelectBed = (bed: FloorPlanBed, room: Room) => {
     setActive({ bed, room });
   };
@@ -239,14 +278,33 @@ export default function FloorPlanPage({ params }: { params: Promise<{ id: string
             </p>
             <p className="hidden print:block text-xs text-black/70 mt-1">Generated {printedOn}</p>
           </div>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            aria-label="Print floor plan"
-            className="print:hidden inline-flex items-center gap-1.5 rounded-lg border border-border bg-card/70 px-3 py-1.5 text-xs font-medium hover:bg-accent shadow-sm"
-          >
-            <Printer className="h-3.5 w-3.5" /> Print
-          </button>
+          <div className="print:hidden inline-flex items-center gap-1.5">
+            {structureQ.data && structureQ.data.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={collapsed.size === structureQ.data.length ? expandAll : collapseAll}
+                  aria-label={collapsed.size === structureQ.data.length ? "Expand all floors" : "Collapse all floors"}
+                  title={collapsed.size === structureQ.data.length ? "Expand all floors" : "Collapse all floors"}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card/70 px-3 py-1.5 text-xs font-medium hover:bg-accent shadow-sm"
+                >
+                  {collapsed.size === structureQ.data.length ? (
+                    <><ChevronsUpDown className="h-3.5 w-3.5" /> Expand all</>
+                  ) : (
+                    <><ChevronsDownUp className="h-3.5 w-3.5" /> Collapse all</>
+                  )}
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => window.print()}
+              aria-label="Print floor plan"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card/70 px-3 py-1.5 text-xs font-medium hover:bg-accent shadow-sm"
+            >
+              <Printer className="h-3.5 w-3.5" /> Print
+            </button>
+          </div>
         </div>
 
         {/* Stat strip */}
@@ -303,16 +361,31 @@ export default function FloorPlanPage({ params }: { params: Promise<{ id: string
           (s, r) => s + r.beds.filter((b) => b.status === "occupied").length,
           0,
         );
+        // In print mode we always force-expand so PDFs aren't blank.
+        const isCollapsed = collapsed.has(String(f.id));
         return (
           <section key={f.id} className="floorplan-page space-y-3 print:break-inside-avoid">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="inline-flex items-center gap-2.5">
-                <div className="grid place-items-center h-8 w-8 rounded-lg bg-primary/10 text-primary">
+            <button
+              type="button"
+              onClick={() => toggleFloor(f.id)}
+              aria-expanded={!isCollapsed}
+              aria-controls={`floor-${f.id}-rooms`}
+              className="group w-full flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 -mx-2 hover:bg-accent/40 transition-colors print:hover:bg-transparent print:pointer-events-none"
+            >
+              <div className="inline-flex items-center gap-2.5 min-w-0">
+                <ChevronDown
+                  className={
+                    "h-4 w-4 text-muted-foreground transition-transform shrink-0 print:hidden " +
+                    (isCollapsed ? "-rotate-90" : "rotate-0")
+                  }
+                  aria-hidden="true"
+                />
+                <div className="grid place-items-center h-8 w-8 rounded-lg bg-primary/10 text-primary shrink-0">
                   <Layers className="h-4 w-4" />
                 </div>
-                <div>
-                  <h2 className="text-base font-semibold leading-tight">Floor {f.floor_number}</h2>
-                  <div className="text-[11px] text-muted-foreground inline-flex items-center gap-2">
+                <div className="min-w-0 text-left">
+                  <h2 className="text-base font-semibold leading-tight truncate">Floor {f.floor_number}</h2>
+                  <div className="text-[11px] text-muted-foreground inline-flex items-center gap-2 flex-wrap">
                     <span className="inline-flex items-center gap-1">
                       <DoorClosed className="h-3 w-3" /> {f.rooms.length} room{f.rooms.length === 1 ? "" : "s"}
                     </span>
@@ -327,15 +400,29 @@ export default function FloorPlanPage({ params }: { params: Promise<{ id: string
                   </div>
                 </div>
               </div>
-            </div>
+              {isCollapsed && (
+                <span className="text-[10px] text-muted-foreground print:hidden shrink-0">
+                  click to expand
+                </span>
+              )}
+            </button>
 
-            {f.rooms.length === 0 ? (
-              <div className="text-xs text-muted-foreground italic">No rooms on this floor.</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 print:grid-cols-2">
-                {f.rooms.map((r) => (
-                  <RoomCard key={r.id} room={r} onSelectBed={onSelectBed} />
-                ))}
+            {(!isCollapsed || true) && (
+              // `print:!block` + `hidden` toggle keeps printouts complete
+              // even when sections are collapsed on screen.
+              <div
+                id={`floor-${f.id}-rooms`}
+                className={isCollapsed ? "hidden print:block" : "block"}
+              >
+                {f.rooms.length === 0 ? (
+                  <div className="text-xs text-muted-foreground italic">No rooms on this floor.</div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 print:grid-cols-2">
+                    {f.rooms.map((r) => (
+                      <RoomCard key={r.id} room={r} onSelectBed={onSelectBed} />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </section>
