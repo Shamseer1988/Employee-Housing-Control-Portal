@@ -145,6 +145,11 @@ services:
       UPLOAD_FOLDER: /data/uploads
     volumes:
       - pug_uploads:/data/uploads
+    # The shared backend image bakes a curl localhost:5000 healthcheck;
+    # celery processes don't serve HTTP, so disable it to avoid a
+    # permanent false "unhealthy".
+    healthcheck:
+      disable: true
     command: ["celery", "-A", "celery_worker.celery", "worker", "--loglevel=info"]
 
   beat:
@@ -173,11 +178,20 @@ services:
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-12345}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-dev-secret-change-in-production-67890}
+      # create_app() makes UPLOAD_FOLDER on boot; without this beat falls
+      # back to ../uploads = /uploads (filesystem root), which the
+      # unprivileged app user can't create → PermissionError → restart
+      # loop. Match the worker: writable /data/uploads on the shared volume.
+      UPLOAD_FOLDER: /data/uploads
+    volumes:
+      - pug_uploads:/data/uploads
     # Keep the PersistentScheduler's shelve file + pidfile in /tmp, not the
     # read-mostly /app workdir. With restart:unless-stopped a single crash
     # that leaves a half-written celerybeat-schedule in /app would otherwise
     # loop forever; /tmp is recreated per container so beat always starts
     # clean.
+    healthcheck:
+      disable: true
     command: ["celery", "-A", "celery_worker.celery", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule", "--pidfile="]
 
   frontend:

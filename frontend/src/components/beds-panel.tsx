@@ -78,6 +78,62 @@ export function BedsPanel({ room, onChanged, onEditRoom }: {
     }
   };
 
+  // "Maintain" used to call /beds/{id}/status — that only flipped the
+  // bed status and wrote an audit log, so the work never appeared in
+  // Transactions → Maintenance. Route through the proper /maintenance
+  // endpoint so a MaintenanceRecord row is created (transaction_number,
+  // prior_status, etc.) and the list page picks it up.
+  const startMaintenance = async (bed: Bed) => {
+    const reason = window.prompt(
+      `Reason for marking ${bed.bed_code} for maintenance? (required)`,
+      "",
+    );
+    if (reason === null) return; // user cancelled
+    if (!reason.trim()) {
+      toast.error("Reason required", "Maintenance transactions need a reason.");
+      return;
+    }
+    try {
+      const r = await api.post("/maintenance", {
+        entity_type: "bed",
+        entity_id: bed.id,
+        reason: reason.trim(),
+      });
+      const txn = r.data?.data?.transaction_number ?? "record";
+      toast.success(`${bed.bed_code} → maintenance`, `Transaction ${txn} created`);
+      await load();
+      onChanged();
+    } catch (err: unknown) {
+      toast.error("Could not start maintenance", errorMessage(err));
+    }
+  };
+
+  // Symmetric to startMaintenance: complete the active record (via the
+  // transaction endpoint) so prior_status is restored and the record
+  // closes cleanly. Falls back to a direct status flip for legacy beds
+  // marked maintenance without an open record.
+  const endMaintenance = async (bed: Bed) => {
+    try {
+      const list = await api.get("/maintenance", {
+        params: { entity_type: "bed", entity_id: bed.id, status: "in_progress" },
+      });
+      const rec = list.data?.data?.[0];
+      if (rec?.id) {
+        await api.post(`/maintenance/${rec.id}/complete`, {
+          actual_end_date: new Date().toISOString().slice(0, 10),
+        });
+        toast.success(`Maintenance ${rec.transaction_number} completed`);
+      } else {
+        await api.post(`/beds/${bed.id}/status`, { status: "empty" });
+        toast.success(`${bed.bed_code} marked empty`);
+      }
+      await load();
+      onChanged();
+    } catch (err: unknown) {
+      toast.error("Could not complete maintenance", errorMessage(err));
+    }
+  };
+
   const remove = async (bed: Bed) => {
     if (!confirm(`Delete bed ${bed.bed_code}?`)) return;
     try {
@@ -124,7 +180,7 @@ export function BedsPanel({ room, onChanged, onEditRoom }: {
                   <div className="mt-2 flex flex-wrap gap-1">
                     {b.status === "empty" && (
                       <>
-                        <button onClick={() => setStatus(b, "maintenance")} className="text-[10px] inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 hover:bg-accent">
+                        <button onClick={() => startMaintenance(b)} className="text-[10px] inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 hover:bg-accent">
                           <Wrench className="h-2.5 w-2.5" /> Maintain
                         </button>
                         <button onClick={() => setStatus(b, "blocked")} className="text-[10px] inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 hover:bg-accent">
@@ -132,7 +188,12 @@ export function BedsPanel({ room, onChanged, onEditRoom }: {
                         </button>
                       </>
                     )}
-                    {(b.status === "maintenance" || b.status === "blocked") && (
+                    {b.status === "maintenance" && (
+                      <button onClick={() => endMaintenance(b)} className="text-[10px] rounded border border-border px-2 py-0.5 hover:bg-accent">
+                        Complete maintenance
+                      </button>
+                    )}
+                    {b.status === "blocked" && (
                       <button onClick={() => setStatus(b, "empty")} className="text-[10px] rounded border border-border px-2 py-0.5 hover:bg-accent">
                         Mark empty
                       </button>

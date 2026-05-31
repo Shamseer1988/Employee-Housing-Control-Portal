@@ -13,6 +13,13 @@ COPY . .
 # Allow build-time API URL injection
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+# Server-side /api proxy target. Next.js bakes rewrites() destinations
+# into the build manifest at BUILD time, so this MUST be present here —
+# setting it only at runtime (compose `environment:`) has no effect.
+# Defaults to the compose service name, which is "backend" in both the
+# local and prod compose files, so the baked value is correct for both.
+ARG BACKEND_INTERNAL_URL=http://backend:5000
+ENV BACKEND_INTERNAL_URL=${BACKEND_INTERNAL_URL}
 # Ensure /app/public exists even if the repo has no static assets — the
 # runner stage unconditionally copies it.
 RUN mkdir -p public && npm run build

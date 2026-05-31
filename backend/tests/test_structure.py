@@ -463,6 +463,20 @@ def test_structure_employee_block_null_for_empty_bed(client, auth_headers):
     assert bed["current_employee"] is None
 
 
+def test_over_long_bed_number_returns_400_not_500(client, auth_headers):
+    """A bed_number longer than the VARCHAR(16) column must 400, not crash."""
+    prop = _make_property(client, auth_headers, "LongBed P")
+    floor = _make_floor(client, auth_headers, prop["id"], "1")
+    room = _make_room(client, auth_headers, floor["id"], "101", capacity=2)
+    resp = client.post(
+        f"/api/v1/rooms/{room['id']}/beds",
+        headers=auth_headers,
+        json={"bed_number": "PROP-0001-FFG-RG01-B3"},  # 21 chars, > 16
+    )
+    assert resp.status_code == 400
+    assert "16 characters" in resp.get_json()["message"]
+
+
 def test_bulk_empty_list_rejected(client, auth_headers):
     prop = _make_property(client, auth_headers, "Bulk Empty P")
     floor = _make_floor(client, auth_headers, prop["id"], "1")

@@ -16,6 +16,7 @@ so a long-lived connection doesn't block a sync worker. The compose
 override is documented in DEPLOY notes (Phase 11).
 """
 import json
+import time
 
 from flask import Blueprint, Response, request, stream_with_context
 
@@ -28,6 +29,14 @@ events_bp = Blueprint("events", __name__)
 # Whitelist channels a client can subscribe to. Per-user notifications
 # get the user's id resolved server-side, never trusted from the URL.
 PUBLIC_CHANNELS = {"occupancy"}
+
+# Cap a single SSE connection. The browser's EventSource auto-reconnects
+# on clean close, so this is invisible to the user — but it lets the
+# gthread worker recycle the thread and frees the pooled HTTP socket on
+# the Next.js proxy side before either keepalive timer expires. Without
+# the cap, one open dashboard tab pins one of only `threads=8` gthread
+# slots for the lifetime of the page.
+STREAM_MAX_SECONDS = 25
 
 
 @events_bp.get("/stream")
@@ -46,18 +55,25 @@ def stream():
         # Initial comment so the browser opens the connection cleanly
         # even if the first real event takes a while.
         yield ":ok\n\n"
+        deadline = time.monotonic() + STREAM_MAX_SECONDS
         for body in events.subscribe(channel):
             if not body:
                 # Keepalive ping every ~15s — comment lines are ignored
                 # by the EventSource parser but keep the TCP socket
                 # warm through middleboxes.
                 yield ":keepalive\n\n"
-                continue
-            yield f"event: {requested}\ndata: {body}\n\n"
+            else:
+                yield f"event: {requested}\ndata: {body}\n\n"
+            if time.monotonic() >= deadline:
+                return
 
     resp = Response(gen(), mimetype="text/event-stream")
     resp.headers["Cache-Control"] = "no-cache"
     resp.headers["X-Accel-Buffering"] = "no"  # disable nginx buffering
+    # Force the connection to close at the end of the stream — proxies
+    # (Next.js undici, nginx) won't try to reuse this socket for a
+    # follow-up request, which is what caused the ECONNRESET bursts.
+    resp.headers["Connection"] = "close"
     return resp
 
 

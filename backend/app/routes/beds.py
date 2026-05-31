@@ -57,6 +57,11 @@ def create_bed(room_id: int):
     bed_number = (payload.get("bed_number") or "").strip()
     if not bed_number:
         return error_response("bed_number is required", 400)
+    # bed_number is stored in a VARCHAR(16). Guard here so an over-long
+    # value (e.g. a full bed_code pasted by mistake) returns a clean 400
+    # instead of crashing the INSERT with a 500.
+    if len(bed_number) > 16:
+        return error_response("bed_number must be 16 characters or fewer", 400)
 
     if Bed.query.filter_by(room_id=room_id, bed_number=bed_number).first():
         return error_response("Bed number already exists in this room", 409)
