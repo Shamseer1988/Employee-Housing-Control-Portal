@@ -50,3 +50,8 @@ deploy/ssl/*
 !deploy/ssl/README.txt
 !deploy/ssl/origin.crt.example
 !deploy/ssl/origin.key.example
+
+# Backup files dumped by the backend into the bind-mounted host folder.
+# Keep the README so the directory survives a fresh clone.
+backups-host/*
+!backups-host/README.txt
