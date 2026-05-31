@@ -49,6 +49,13 @@ celery.conf.update(
             "task": "app.tasks.reminders.recompute_reminder_summary",
             "schedule": crontab(hour=2, minute=15),
         },
+        # Run every day at 03:00 UTC. The task itself reads the
+        # operator's `backup.schedule` setting (daily/weekly/monthly/
+        # disabled) and skips when today doesn't match.
+        "scheduled-backup": {
+            "task": "app.tasks.backup.scheduled_backup",
+            "schedule": crontab(hour=3, minute=0),
+        },
     },
 )
 

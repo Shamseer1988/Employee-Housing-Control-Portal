@@ -47,6 +47,7 @@ def jobrun(task_name: str, payload: dict | None = None):
 
 
 # Importing submodules at package load wires the Celery registry.
+from . import backup  # noqa: E402,F401
 from . import reminders  # noqa: E402,F401
 from . import expiry  # noqa: E402,F401
 from . import bulk_movements  # noqa: E402,F401

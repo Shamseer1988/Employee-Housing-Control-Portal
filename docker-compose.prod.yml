@@ -67,6 +67,7 @@ services:
       JWT_COOKIE_SECURE: "true"
       JWT_COOKIE_SAMESITE: "Lax"
       UPLOAD_FOLDER: /data/uploads
+      BACKUP_FOLDER: /data/backups
       SUPERUSER_USERNAME: ${SUPERUSER_USERNAME:-admin}
       SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-admin@pugroup.local}
       SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD:?set SUPERUSER_PASSWORD}
@@ -76,6 +77,7 @@ services:
       ENABLE_API_DOCS: ${ENABLE_API_DOCS:-}
     volumes:
       - pug_uploads:/data/uploads
+      - pug_backups:/data/backups
     command: >
       sh -c "flask --app wsgi wait-for-db &&
              flask --app wsgi init-db &&
@@ -100,8 +102,10 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
       CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
       UPLOAD_FOLDER: /data/uploads
+      BACKUP_FOLDER: /data/backups
     volumes:
       - pug_uploads:/data/uploads
+      - pug_backups:/data/backups
     command: ["celery", "-A", "celery_worker.celery", "worker", "--loglevel=info"]
 
   beat:
@@ -158,3 +162,4 @@ services:
 volumes:
   pug_pgdata:
   pug_uploads:
+  pug_backups:

@@ -97,6 +97,7 @@ services:
       JWT_COOKIE_SAMESITE: "Lax"
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       UPLOAD_FOLDER: /data/uploads
+      BACKUP_FOLDER: /data/backups
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-12345}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-dev-secret-change-in-production-67890}
       SUPERUSER_USERNAME: ${SUPERUSER_USERNAME:-admin}
@@ -106,6 +107,7 @@ services:
       ENABLE_API_DOCS: "1"
     volumes:
       - pug_uploads:/data/uploads
+      - pug_backups:/data/backups
     ports:
       # Direct API access for debugging (the app itself uses :8080).
       - "${BACKEND_PORT:-5000}:5000"
@@ -143,8 +145,10 @@ services:
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production-12345}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-jwt-dev-secret-change-in-production-67890}
       UPLOAD_FOLDER: /data/uploads
+      BACKUP_FOLDER: /data/backups
     volumes:
       - pug_uploads:/data/uploads
+      - pug_backups:/data/backups
     # The shared backend image bakes a curl localhost:5000 healthcheck;
     # celery processes don't serve HTTP, so disable it to avoid a
     # permanent false "unhealthy".
@@ -183,8 +187,13 @@ services:
       # unprivileged app user can't create → PermissionError → restart
       # loop. Match the worker: writable /data/uploads on the shared volume.
       UPLOAD_FOLDER: /data/uploads
+      # Same volume as backend so the scheduled backup task (running
+      # inside beat-triggered worker jobs) writes where the API can
+      # list / download / delete them.
+      BACKUP_FOLDER: /data/backups
     volumes:
       - pug_uploads:/data/uploads
+      - pug_backups:/data/backups
     # Keep the PersistentScheduler's shelve file + pidfile in /tmp, not the
     # read-mostly /app workdir. With restart:unless-stopped a single crash
     # that leaves a half-written celerybeat-schedule in /app would otherwise
@@ -217,3 +226,4 @@ services:
 volumes:
   pug_pgdata:
   pug_uploads:
+  pug_backups:

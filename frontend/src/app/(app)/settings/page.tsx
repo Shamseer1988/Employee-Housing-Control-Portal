@@ -9,6 +9,7 @@ import {
 import { api } from "@/lib/api";
 import { Can } from "@/components/can";
 import { CompanyLogoUploader } from "@/components/company-logo-uploader";
+import { BackupPanel } from "@/components/backup-panel";
 import { inputClass, selectClass, textareaClass } from "@/components/ui/dialog";
 import { toast, errorMessage } from "@/components/ui/toast";
 
@@ -194,6 +195,7 @@ export default function SettingsPage() {
                       onChange={(v) => setDraft(s.key, v)}
                     />
                   ))}
+                {active.category === "backup" && <BackupPanel />}
               </div>
             </>
           )}

@@ -36,12 +36,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Runtime-only system libs: libpq5 for psycopg2, libmagic1 for python-magic
-# (Phase 3 upload content-sniffing), curl for the HEALTHCHECK below. Note
-# the *-dev packages and build-essential are intentionally absent here.
+# Runtime-only system libs:
+#   * libpq5 / libmagic1 — psycopg2 + python-magic (upload sniffing)
+#   * curl — HEALTHCHECK below
+#   * postgresql-client — pg_dump / pg_restore used by the backup module.
+#     Pinned to the same major as the db service (currently 17). When
+#     bumping postgres, bump this too — pg_dump's major must be >= the
+#     server's major.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        libpq5 libmagic1 curl \
+        libpq5 libmagic1 curl postgresql-client \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -61,7 +65,7 @@ EXPOSE 5000
 
 # Drop privileges
 RUN groupadd -r app && useradd -r -g app -d /app -s /sbin/nologin app \
- && mkdir -p /data/uploads /data/backups \
+ && mkdir -p /data/uploads /data/backups /data/backups-imports \
  && chown -R app:app /app /data
 USER app
 
