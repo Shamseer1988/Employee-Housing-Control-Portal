@@ -176,6 +176,14 @@ DEFAULTS: list[dict] = [
      "description": "Placeholder — 2FA enrolment is on the roadmap."},
 
     # ---------- Backup ----------
+    {"key": "backup.folder", "category": "backup", "type": "string",
+     "label": "Backup folder path", "value": "",
+     "description": "Absolute path inside the backend container where .dump files are written. "
+                    "Leave empty to use BACKUP_FOLDER env var (defaults to /data/backups). "
+                    "The path must exist and be writable by the container — mount a host folder "
+                    "or extra volume in docker-compose.yml if you want backups to land somewhere "
+                    "other than the default volume.",
+     "help": "e.g. /data/backups or /mnt/nas/db-backups"},
     {"key": "backup.schedule", "category": "backup", "type": "select",
      "label": "Automatic backup schedule", "value": "daily",
      "options": [

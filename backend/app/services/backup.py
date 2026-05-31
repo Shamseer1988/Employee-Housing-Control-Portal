@@ -63,8 +63,22 @@ class BackupFile:
 
 
 def _backup_dir() -> Path:
-    folder = current_app.config.get("BACKUP_FOLDER") or os.getenv(
-        "BACKUP_FOLDER", "/data/backups"
+    """Resolve the backup folder. Operator can override via the
+    `backup.folder` setting in the Settings UI; falls back to the
+    BACKUP_FOLDER env var, then to /data/backups. Always
+    `mkdir -p`s the resulting path so a fresh install just works."""
+    # Avoid an import cycle: settings_service imports from extensions/db
+    # which is fine here, but keep the import lazy in case backup is
+    # called very early in app boot.
+    from . import settings as settings_service
+    try:
+        configured = settings_service.get("backup.folder")
+    except Exception:
+        configured = None
+    folder = (
+        (configured or "").strip()
+        or current_app.config.get("BACKUP_FOLDER")
+        or os.getenv("BACKUP_FOLDER", "/data/backups")
     )
     p = Path(folder)
     p.mkdir(parents=True, exist_ok=True)
