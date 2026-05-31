@@ -50,6 +50,7 @@ PERMISSION_CATALOG: list[tuple[str, str, str]] = [
     ("audit", "view", "View audit log"),
     ("settings", "view", "View system settings"),
     ("settings", "manage", "Manage system settings"),
+    ("backup", "manage", "Run, restore, and schedule database backups"),
 ]
 
 

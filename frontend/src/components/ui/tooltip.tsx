@@ -33,16 +33,23 @@ export function Tooltip({
           <RadixTooltip.Content
             side={side}
             align={align}
-            sideOffset={6}
+            sideOffset={8}
+            collisionPadding={12}
             className={
-              "z-50 rounded-md border border-border bg-popover text-popover-foreground shadow-md px-3 py-2 text-xs " +
+              // Solid card background — Tailwind config has no `popover`
+              // token, so the old `bg-popover` resolved to nothing and
+              // the tooltip rendered transparent / unreadable. Use the
+              // card token (opaque) and bump padding + text to make
+              // employee/bed details legible at hover.
+              "z-50 max-w-sm rounded-lg border border-border bg-card text-card-foreground " +
+              "shadow-xl px-3.5 py-2.5 text-sm leading-snug " +
               "data-[state=delayed-open]:animate-in data-[state=closed]:animate-out " +
               "data-[state=closed]:fade-out-0 data-[state=delayed-open]:fade-in-0 " +
               (className ?? "")
             }
           >
             {content}
-            <RadixTooltip.Arrow className="fill-popover" />
+            <RadixTooltip.Arrow className="fill-card" />
           </RadixTooltip.Content>
         </RadixTooltip.Portal>
       </RadixTooltip.Root>

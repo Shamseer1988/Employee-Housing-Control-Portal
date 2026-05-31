@@ -104,6 +104,7 @@ def create_app(config_name: str | None = None) -> APIFlask:
     from .routes.reports import reports_bp
     from .routes.approvals import approvals_bp
     from .routes.settings import settings_bp
+    from .routes.backup import backup_bp
 
     app.register_blueprint(health_bp, url_prefix="/api/v1")
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
@@ -130,6 +131,7 @@ def create_app(config_name: str | None = None) -> APIFlask:
     app.register_blueprint(reports_bp, url_prefix="/api/v1/reports")
     app.register_blueprint(approvals_bp, url_prefix="/api/v1/approvals")
     app.register_blueprint(settings_bp, url_prefix="/api/v1/settings")
+    app.register_blueprint(backup_bp, url_prefix="/api/v1/backups")
 
     # Celery (Phase 5). Initialized after blueprints so task imports
     # see the fully-configured app.
