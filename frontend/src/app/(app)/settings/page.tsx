@@ -287,9 +287,24 @@ function Input({ id, setting, value, onChange }: {
       </Can>
     );
   }
+  // String fallthrough. Surfacing setting.help inside the input as a
+  // placeholder makes it obvious where to type — the help line below the
+  // field was being mistaken for the field itself on long-description
+  // settings like backup.folder.
   return (
-    <Can perm="settings.manage" fallback={<div className="text-sm text-muted-foreground">{String(value ?? "")}</div>}>
-      <input id={id} type="text" className={inputClass} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} />
+    <Can perm="settings.manage" fallback={
+      <div className="h-9 px-3 grid items-center rounded-md border border-dashed border-border bg-muted/30 text-sm text-muted-foreground">
+        {value ? String(value) : "(not set — read-only)"}
+      </div>
+    }>
+      <input
+        id={id}
+        type="text"
+        className={inputClass}
+        value={String(value ?? "")}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={setting.help ?? ""}
+      />
     </Can>
   );
 }
