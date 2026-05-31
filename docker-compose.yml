@@ -25,7 +25,7 @@ name: pug-accommodation
 
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     restart: unless-stopped
     # Postgres reads POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB from
     # backend/.env at first boot to run initdb — the same file the backend
