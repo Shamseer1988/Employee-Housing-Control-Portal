@@ -10,7 +10,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <AuthGuard>
       <RouteProgress />
       <div
-        className="flex min-h-screen"
+        className="flex h-[100dvh] overflow-hidden"
         style={{
           paddingLeft: "env(safe-area-inset-left)",
           paddingRight: "env(safe-area-inset-right)",
@@ -18,9 +18,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }}
       >
         <Sidebar />
-        <div className="flex flex-1 flex-col min-w-0">
+        <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
           <Topbar />
-          <main className="flex-1 p-3 sm:p-4 lg:p-6 min-w-0 overflow-x-hidden">
+          <main className="flex-1 p-3 sm:p-4 lg:p-6 min-w-0 overflow-y-auto overflow-x-hidden">
             <ErrorBoundary fallbackTitle="This page crashed — here's what happened.">
               <PageTransition>{children}</PageTransition>
             </ErrorBoundary>
