@@ -183,9 +183,17 @@ jobs:
           JWT_SECRET_KEY: ci-jwt-secret-padded-to-32-bytes-5678
           SUPERUSER_PASSWORD: ChangeMe123!
           CORS_ORIGINS: http://localhost
-        run: docker compose build ${{ matrix.service }}
+        run: |
+          # nginx no longer lives in docker-compose.yml (it's prod-only),
+          # so build the matrix-tagged image directly from deploy/.
+          if [ "${{ matrix.service }}" = "nginx" ]; then
+            docker build -f deploy/Dockerfile.nginx \
+              -t pug-accommodation-nginx:latest ./deploy
+          else
+            docker compose build ${{ matrix.service }}
+          fi
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: pug-accommodation-${{ matrix.service }}:latest
           severity: CRITICAL,HIGH
@@ -222,14 +230,18 @@ jobs:
           SECRET_KEY: ci-secret-padded-to-32-bytes-1234
           JWT_SECRET_KEY: ci-jwt-secret-padded-to-32-bytes-5678
           SUPERUSER_PASSWORD: ChangeMe123!
-          CORS_ORIGINS: http://localhost
+          CORS_ORIGINS: http://localhost:8080
         run: |
-          docker compose up -d --build db redis backend frontend nginx
-          # Poll the public health endpoint instead of trusting
-          # depends_on (which only waits for container start).
+          # Local compose has no nginx — frontend on :8080 is the public
+          # entry point and proxies /api/* to backend over the compose
+          # network. (nginx lives only in docker-compose.prod.yml, which
+          # requires Cloudflare origin certs we don't have in CI.)
+          docker compose up -d --build db redis backend frontend
+          # Poll the backend health endpoint via the frontend proxy so
+          # we exercise the same path the e2e tests will hit.
           for i in $(seq 1 60); do
-            if curl -fsS http://localhost/health > /dev/null; then
-              echo "stack ready after ${i}s"
+            if curl -fsS http://localhost:8080/api/v1/health > /dev/null; then
+              echo "stack ready after $((i*2))s"
               break
             fi
             sleep 2
@@ -242,7 +254,7 @@ jobs:
 
       - name: Run Playwright
         env:
-          E2E_BASE_URL: http://localhost
+          E2E_BASE_URL: http://localhost:8080
           E2E_USER: admin
           E2E_PASS: ChangeMe123!
         run: npm run e2e
