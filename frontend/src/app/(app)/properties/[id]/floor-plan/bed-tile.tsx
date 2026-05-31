@@ -68,29 +68,34 @@ export function BedTile({
   return (
     <Tooltip
       content={
-        <div className="max-w-[18rem] space-y-1">
-          <div className="font-medium">
-            <span className="font-mono">{bed.bed_code}</span>
-            <span className="ml-2 text-[10px] uppercase tracking-wide opacity-80">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-sm font-semibold">{bed.bed_code}</span>
+            <span
+              className={
+                "rounded-full px-1.5 py-0.5 text-[10px] uppercase tracking-wide font-medium " +
+                (TONES[bed.status]?.cls ?? "")
+              }
+            >
               {bed.status}
             </span>
           </div>
-          <div className="text-[10px] opacity-80 capitalize">
+          <div className="text-xs text-muted-foreground capitalize">
             {bed.bed_type.replace("_", " ")}
           </div>
           {bed.current_employee ? (
-            <div className="border-t border-border/60 pt-1 text-[11px] space-y-0.5">
-              <div className="font-medium">{bed.current_employee.full_name}</div>
-              <div className="font-mono opacity-70">{bed.current_employee.code}</div>
+            <div className="border-t border-border pt-1.5 space-y-0.5">
+              <div className="text-sm font-semibold">{bed.current_employee.full_name}</div>
+              <div className="font-mono text-xs text-muted-foreground">{bed.current_employee.code}</div>
               {bed.current_employee.designation && (
-                <div className="opacity-80">{bed.current_employee.designation}</div>
+                <div className="text-xs">{bed.current_employee.designation}</div>
               )}
               {bed.current_employee.division_name && (
-                <div className="opacity-80">{bed.current_employee.division_name}</div>
+                <div className="text-xs text-muted-foreground">{bed.current_employee.division_name}</div>
               )}
             </div>
           ) : (
-            <div className="text-[11px] opacity-70 italic">
+            <div className="text-xs text-muted-foreground italic">
               No occupant — click to assign
             </div>
           )}
@@ -106,8 +111,8 @@ export function BedTile({
             : ""
         }`}
         className={
-          "group relative aspect-square min-w-[3.5rem] grid place-items-center " +
-          "rounded-lg border font-mono text-[10px] shadow-sm " +
+          "group relative aspect-square min-w-[4.25rem] flex flex-col items-center justify-center gap-1 " +
+          "rounded-lg border font-mono text-xs shadow-sm " +
           "cursor-pointer transition-all duration-150 " +
           "hover:scale-[1.06] hover:-translate-y-0.5 hover:shadow-md " +
           "focus:outline-none focus:ring-2 focus:ring-primary/60 " +
@@ -116,13 +121,15 @@ export function BedTile({
       >
         <span
           className={
-            "absolute top-1 right-1 h-1.5 w-1.5 rounded-full ring-2 ring-background/80 " +
+            "absolute top-1.5 right-1.5 h-2 w-2 rounded-full ring-2 ring-background/80 " +
             tone.dot
           }
           aria-hidden="true"
         />
-        <BedDouble className="h-3.5 w-3.5 opacity-70" />
-        <div className="truncate max-w-[3rem] mt-0.5 font-semibold">{label}</div>
+        <BedDouble className="h-4 w-4 opacity-70" />
+        <div className="truncate max-w-[3.75rem] text-[11px] font-bold leading-none">
+          {label}
+        </div>
       </button>
     </Tooltip>
   );
