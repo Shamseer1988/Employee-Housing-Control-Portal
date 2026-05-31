@@ -45,7 +45,13 @@ def list_backups():
 @backup_bp.get("/info")
 @require_permission("backup.manage")
 def info():
-    folder = os.getenv("BACKUP_FOLDER", "/data/backups")
+    """Report the folder the backup service is actually using right
+    now — so the Settings UI can show whether the operator's configured
+    path is reachable and how much space is left."""
+    try:
+        folder = str(backup._backup_dir())  # honours the setting + env
+    except Exception:
+        folder = os.getenv("BACKUP_FOLDER", "/data/backups")
     try:
         usage = shutil.disk_usage(folder)
         space = {

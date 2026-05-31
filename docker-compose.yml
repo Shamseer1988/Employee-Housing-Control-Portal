@@ -108,6 +108,11 @@ services:
     volumes:
       - pug_uploads:/data/uploads
       - pug_backups:/data/backups
+      # Bind mount so backups are visible in Windows Explorer at
+      # ./backups-host (relative to this compose file). Operator can
+      # point Settings → Backup → "Backup folder path" at
+      # /mnt/host-backups to write here instead of the named volume.
+      - ./backups-host:/mnt/host-backups
     ports:
       # Direct API access for debugging (the app itself uses :8080).
       - "${BACKEND_PORT:-5000}:5000"
@@ -149,6 +154,11 @@ services:
     volumes:
       - pug_uploads:/data/uploads
       - pug_backups:/data/backups
+      # Bind mount so backups are visible in Windows Explorer at
+      # ./backups-host (relative to this compose file). Operator can
+      # point Settings → Backup → "Backup folder path" at
+      # /mnt/host-backups to write here instead of the named volume.
+      - ./backups-host:/mnt/host-backups
     # The shared backend image bakes a curl localhost:5000 healthcheck;
     # celery processes don't serve HTTP, so disable it to avoid a
     # permanent false "unhealthy".
@@ -194,6 +204,11 @@ services:
     volumes:
       - pug_uploads:/data/uploads
       - pug_backups:/data/backups
+      # Bind mount so backups are visible in Windows Explorer at
+      # ./backups-host (relative to this compose file). Operator can
+      # point Settings → Backup → "Backup folder path" at
+      # /mnt/host-backups to write here instead of the named volume.
+      - ./backups-host:/mnt/host-backups
     # Keep the PersistentScheduler's shelve file + pidfile in /tmp, not the
     # read-mostly /app workdir. With restart:unless-stopped a single crash
     # that leaves a half-written celerybeat-schedule in /app would otherwise
