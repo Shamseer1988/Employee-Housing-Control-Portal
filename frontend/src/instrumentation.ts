@@ -52,4 +52,38 @@ export async function register() {
       ],
     }),
   );
+
+  // -------------------------------------------------------------------
+  // Silence the expected SSE close-as-error log.
+  //
+  // Our SSE endpoint (/api/v1/events/stream) intentionally caps each
+  // connection at ~25s (STREAM_MAX_SECONDS) and closes with
+  // `Connection: close` so gthread workers and pooled proxy sockets
+  // never get pinned. The browser's EventSource auto-reconnects on the
+  // close — invisible to the user.
+  //
+  // undici / Next.js see that mid-body close as a "socket hang up" /
+  // ECONNRESET and log it as a proxy error every ~30 seconds. That's
+  // not a real error; the next request immediately succeeds. Filter
+  // those specific lines out of console.error so the production log
+  // stays meaningful.
+  const origError = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    const text = args
+      .map((a) => {
+        if (typeof a === "string") return a;
+        if (a instanceof Error) return `${a.name}: ${a.message}`;
+        try { return JSON.stringify(a); } catch { return String(a); }
+      })
+      .join(" ");
+    if (
+      text.includes("/api/v1/events/stream") &&
+      (text.includes("socket hang up") ||
+        text.includes("ECONNRESET") ||
+        text.includes("UND_ERR_SOCKET"))
+    ) {
+      return; // expected end-of-stream, not an error
+    }
+    origError(...args);
+  };
 }
