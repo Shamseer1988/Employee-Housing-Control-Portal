@@ -227,7 +227,12 @@ services:
         NEXT_PUBLIC_API_URL: ""
     restart: unless-stopped
     depends_on:
-      - backend
+      # Wait for backend's HEALTHCHECK (curl /api/v1/health) to pass before
+      # starting Next.js. Eliminates the ECONNREFUSED noise on first boot
+      # when a browser tab beats gunicorn's bind to :5000 (the seed step
+      # adds ~5s on fresh installs).
+      backend:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       # Server-side reverse-proxy target. Next.js forwards /api/* here over
