@@ -208,36 +208,108 @@ def create_backup() -> BackupFile:
     )
 
 
+def _admin_psql(sql: str, *, timeout: int = 30, check: bool = True) -> subprocess.CompletedProcess:
+    """Run a single SQL statement against the `postgres` admin database.
+
+    We have to connect somewhere other than the app DB itself to drop /
+    create it — Postgres refuses to drop a database while ANY connection
+    (including yours) is on it. The `postgres` database always exists
+    on a default cluster, so we use it for these maintenance commands.
+    """
+    _require_pg_restore()
+    host = os.getenv("POSTGRES_HOST", "db")
+    port = os.getenv("POSTGRES_PORT", "5432")
+    user = os.getenv("POSTGRES_USER", "pug")
+    cmd = [PSQL, "-h", host, "-p", str(port), "-U", user, "-d", "postgres",
+           "-v", "ON_ERROR_STOP=1", "-c", sql]
+    proc = subprocess.run(
+        cmd, env=_db_env(), capture_output=True, text=True,
+        timeout=timeout, check=False,
+    )
+    if check and proc.returncode != 0:
+        msg = (proc.stderr or "psql failed").strip().splitlines()[-1]
+        raise BackupError(f"psql failed ({sql[:60]}…): {msg}")
+    return proc
+
+
 def restore_backup(source: Path) -> None:
     """Restore the database from a custom-format pg_dump file.
 
-    Uses pg_restore with --clean --if-exists so existing objects are
-    dropped before being recreated. After the restore returns the
-    process should be restarted (or at least connections recycled) so
-    SQLAlchemy doesn't hold stale prepared statements; the route layer
-    spells that out in its 200 response."""
+    Strategy: drop the app database and recreate it empty, then
+    pg_restore into the fresh DB. We do NOT use pg_restore --clean
+    because that issues per-table DROP TABLE statements which deadlock
+    against other gunicorn workers / background tasks holding open
+    sessions — the request appears to freeze indefinitely.
+
+    Drop / create are issued against the `postgres` admin DB so we
+    aren't connected to the database we're dropping. Before the drop
+    we explicitly terminate any other backend connections (gunicorn
+    siblings, celery worker, beat) — without that DROP DATABASE would
+    block on the same locks pg_restore --clean used to block on.
+
+    After the restore SQLAlchemy's engine pool is disposed; the next
+    request will reconnect to the restored database. The route layer
+    tells the operator their session may need a refresh.
+    """
     _require_pg_restore()
     if not source.exists():
         raise BackupError("Backup file not found")
 
+    host = os.getenv("POSTGRES_HOST", "db")
+    port = os.getenv("POSTGRES_PORT", "5432")
+    user = os.getenv("POSTGRES_USER", "pug")
+    db_name = os.getenv("POSTGRES_DB", "pug_accommodation")
+    env = _db_env()
+
+    # 1. Release THIS worker's pooled connections so the terminate-and-
+    #    drop below doesn't also have to fight us. dispose() flushes the
+    #    pool; next session access creates a fresh connection (which
+    #    will land on the restored DB).
+    try:
+        from ..extensions import db as _db
+        _db.session.remove()
+        _db.engine.dispose()
+    except Exception:
+        # If we somehow can't import the app db (unit test, CLI), keep
+        # going — pg_terminate_backend below catches sibling workers.
+        pass
+
+    # 2. Kill every other connection to the target DB so DROP DATABASE
+    #    won't block. ON_ERROR_STOP=0 here because pg_terminate_backend
+    #    occasionally returns false when a pid has already exited.
+    _admin_psql(
+        f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+        f"WHERE datname = '{db_name}' AND pid <> pg_backend_pid();",
+        timeout=30,
+        check=False,
+    )
+
+    # 3. Drop + recreate. Quoting the identifier so a hyphen / unusual
+    #    char in the DB name still works.
+    _admin_psql(f'DROP DATABASE IF EXISTS "{db_name}";', timeout=60)
+    _admin_psql(f'CREATE DATABASE "{db_name}" OWNER "{user}";', timeout=30)
+
+    # 4. pg_restore into the fresh, empty DB. No --clean needed —
+    #    nothing to drop. --single-transaction so the entire restore
+    #    rolls back atomically on the first error instead of leaving
+    #    half-built schema in place.
     cmd = [
         PG_RESTORE,
-        *_conn_args(),
-        "--clean",
-        "--if-exists",
+        "-h", host, "-p", str(port), "-U", user, "-d", db_name,
         "--no-owner",
         "--no-privileges",
         "--single-transaction",
+        "--exit-on-error",
         str(source),
     ]
-    proc = subprocess.run(
-        cmd,
-        env=_db_env(),
-        capture_output=True,
-        text=True,
-        timeout=900,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            cmd, env=env, capture_output=True, text=True,
+            timeout=900, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        raise BackupError("pg_restore timed out after 15 minutes")
+
     if proc.returncode != 0:
         msg = (proc.stderr or "pg_restore failed").strip().splitlines()[-1]
         raise BackupError(f"pg_restore failed: {msg}")

@@ -110,7 +110,14 @@ export function BackupPanel() {
   const restoreOnDisk = async (filename: string) => {
     setBusy(`restore:${filename}`);
     try {
-      const r = await api.post(`/backups/${encodeURIComponent(filename)}/restore`);
+      // 10-minute ceiling so the UI never appears frozen indefinitely
+      // — pg_restore on a fresh dev DB finishes in seconds, but a
+      // multi-GB restore could legitimately run for a few minutes.
+      const r = await api.post(
+        `/backups/${encodeURIComponent(filename)}/restore`,
+        undefined,
+        { timeout: 600_000 },
+      );
       toast.success("Restore complete", r.data?.message ?? filename);
       setConfirmRestore(null);
       await load();
@@ -141,6 +148,7 @@ export function BackupPanel() {
       form.append("file", file);
       const r = await api.post("/backups/upload-restore", form, {
         headers: { "Content-Type": "multipart/form-data" },
+        timeout: 600_000,
       });
       toast.success("Restore complete", r.data?.message ?? file.name);
       await load();

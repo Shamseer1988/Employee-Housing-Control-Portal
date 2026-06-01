@@ -132,25 +132,28 @@ def delete(filename: str):
 @backup_bp.post("/<path:filename>/restore")
 @require_permission("backup.manage")
 def restore_existing(filename: str):
+    # Snapshot operator identity BEFORE the restore — the SQLAlchemy
+    # session is detached during the drop+recreate, so the `actor` ORM
+    # object becomes unusable. We log to the application logger (visible
+    # in `docker compose logs backend`) instead of writing AuditLog —
+    # the audit row would race against the just-restored DB and the
+    # restoring user might not even exist there.
     actor = current_user()
+    actor_id, actor_username = actor.id, actor.username
     try:
         path = backup.path_for(filename)
         backup.restore_backup(path)
     except backup.BackupError as exc:
         return error_response(str(exc), 400)
-    audit.record(
-        user=actor,
-        action="restore",
-        module="backup",
-        entity_type="backup",
-        entity_id=filename,
+
+    current_app.logger.warning(
+        "DB RESTORED from %s by user_id=%s username=%s",
+        filename, actor_id, actor_username,
     )
-    from ..extensions import db
-    db.session.commit()
     return success_response(
         message=(
-            f"Restored from {filename}. Restart the backend "
-            "process to refresh pooled connections."
+            f"Restored from {filename}. You may need to sign in again — "
+            "the restored database may have different user records."
         )
     )
 
@@ -183,25 +186,20 @@ def upload_restore():
 
     f.save(target)
 
+    actor_id, actor_username = actor.id, actor.username
     try:
         backup.restore_backup(target)
     except backup.BackupError as exc:
         return error_response(str(exc), 400)
 
-    audit.record(
-        user=actor,
-        action="upload_restore",
-        module="backup",
-        entity_type="backup",
-        entity_id=target.name,
-        remarks=f"uploaded {f.filename}",
+    current_app.logger.warning(
+        "DB RESTORED from uploaded %s (saved as %s) by user_id=%s username=%s",
+        f.filename, target.name, actor_id, actor_username,
     )
-    from ..extensions import db
-    db.session.commit()
     return success_response(
         data={"filename": target.name},
         message=(
-            f"Restored from uploaded {target.name}. Restart the backend "
-            "process to refresh pooled connections."
+            f"Restored from uploaded {target.name}. You may need to sign in "
+            "again — the restored database may have different user records."
         ),
     )
