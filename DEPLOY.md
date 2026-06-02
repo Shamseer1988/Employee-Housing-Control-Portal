@@ -395,3 +395,120 @@ Outside-the-repo actions an operator MUST take before go-live:
   in-place upgrades. A real Alembic baseline is its own follow-up.
 - **Source-map upload to Sentry** not configured; minified traces
   only. Worth doing once Sentry is connected.
+
+---
+
+## Multi-site hosting on the same box
+
+This compose stack runs three independent sites behind one nginx
+container (`deploy/nginx.conf`):
+
+| Hostname                              | App                                | Status today      |
+|---------------------------------------|------------------------------------|-------------------|
+| `accommodation.parisunitedgroup.com`  | Employee Housing Control Portal    | Live              |
+| `pugfin.parisunitedgroup.com`         | PUG Finance app                    | Planned (stubbed) |
+| `parisunitedgroup.com` + `www.`       | PUG corporate marketing site       | Planned (stubbed) |
+
+Each is its own `server` block in `deploy/nginx.conf` with its own
+upstreams and CSP. The Cloudflare edge allowlist, real-IP block, TLS
+session cache, and gzip rules are defined once at the top and apply
+everywhere. An explicit catch-all `server` block on `:443` returns
+`444` (close without response) for any unknown SNI, so a probe of an
+unrelated hostname can't accidentally hit a real vhost.
+
+### Cloudflare Origin Certificate — must be a wildcard
+
+Until now the Origin Cert was minted for
+`accommodation.parisunitedgroup.com` only. Before bringing the other
+two sites online, **re-mint the cert** to cover all three:
+
+1. Cloudflare dashboard → **parisunitedgroup.com** → SSL/TLS →
+   **Origin Server** → **Create Certificate**.
+2. Key type: **RSA (2048)**. Validity: **15 years**.
+3. Hostnames: enter both lines:
+   ```
+   *.parisunitedgroup.com
+   parisunitedgroup.com
+   ```
+4. Save the new "Origin Certificate" block to
+   `deploy/ssl/origin.crt` and the "Private key" block to
+   `deploy/ssl/origin.key` (overwriting the previous single-host
+   files).
+5. Bounce nginx so it picks up the new cert:
+   ```
+   docker compose -f docker-compose.prod.yml restart nginx
+   ```
+
+Without the wildcard, the TLS handshake for `pugfin.*` and the apex
+`parisunitedgroup.com` will fail with a hostname mismatch (or
+Cloudflare's Full-Strict mode will refuse to talk to the origin).
+
+### Cloudflare DNS — one A record per hostname
+
+Each hostname needs its own DNS record pointing at the same office IP
+(or DDNS-managed IP — see `docs/LIVE_DEPLOYMENT_GUIDE.html` §8):
+
+| Type | Name             | Content                          | Proxy   |
+|------|------------------|----------------------------------|---------|
+| A    | `accommodation`  | office public IP                 | Proxied |
+| A    | `pugfin`         | office public IP                 | Proxied |
+| A    | `@` (apex)       | office public IP                 | Proxied |
+| CNAME| `www`            | `parisunitedgroup.com`           | Proxied |
+
+All four must be **orange-cloud Proxied** — the nginx allowlist drops
+direct hits.
+
+### Cloudflare Tunnel — one ingress rule per hostname (if you use it)
+
+If the office sits behind CGNAT and you switched to Cloudflare Tunnel
+instead of port-forwarding (Troubleshooting §12.6 of the deployment
+guide), the tunnel's ingress rules file needs an entry per hostname,
+all pointing at the same loopback `https://localhost:443`:
+
+```yaml
+# ~/.cloudflared/config.yml
+tunnel: <your-tunnel-id>
+credentials-file: /etc/cloudflared/<your-tunnel-id>.json
+ingress:
+  - hostname: accommodation.parisunitedgroup.com
+    service: https://localhost:443
+    originRequest:
+      originServerName: accommodation.parisunitedgroup.com
+  - hostname: pugfin.parisunitedgroup.com
+    service: https://localhost:443
+    originRequest:
+      originServerName: pugfin.parisunitedgroup.com
+  - hostname: parisunitedgroup.com
+    service: https://localhost:443
+    originRequest:
+      originServerName: parisunitedgroup.com
+  - hostname: www.parisunitedgroup.com
+    service: https://localhost:443
+    originRequest:
+      originServerName: www.parisunitedgroup.com
+  - service: http_status:404
+```
+
+The `originServerName` forces the right SNI so nginx routes each
+request to its matching vhost.
+
+### Bringing host #2 or #3 online
+
+1. Uncomment the corresponding stub block in
+   `docker-compose.prod.yml` (under the `# TODO: enable when …`
+   comment near the nginx service) and supply a real `image:` or
+   `build:` for each container.
+2. For host #3 only, also uncomment the `pugweb_uploads` external
+   volume + the `nginx` service's commented bind line, then create the
+   external volume once:
+   ```
+   docker volume create pugweb_uploads
+   ```
+3. Verify the nginx config still parses:
+   ```
+   docker compose -f docker-compose.prod.yml exec nginx nginx -t
+   ```
+4. Reload nginx in place (no downtime for hosts already live):
+   ```
+   docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
+   ```
