@@ -25,7 +25,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
       - pug_pgdata:/var/lib/postgresql/data
-      - ./backups:/backups
     # No host port mapping — Postgres only reachable inside the
     # compose network.
     healthcheck:
@@ -58,7 +57,10 @@ services:
       # rejects dev secrets and CORS '*' at boot.
       FLASK_ENV: production
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      # In-stack Redis — hardcoded so the .env at repo root can't
+      # substitute a localhost / external value in by accident. To
+      # point at an EXTERNAL Redis, edit this line directly here.
+      REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
       CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS (no '*' in production)}
@@ -97,7 +99,7 @@ services:
     environment:
       FLASK_ENV: production
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
       CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
@@ -106,6 +108,11 @@ services:
     volumes:
       - pug_uploads:/data/uploads
       - pug_backups:/data/backups
+    # The shared backend image bakes a curl localhost:5000 healthcheck;
+    # celery processes don't serve HTTP, so disable it to avoid a
+    # permanent false "unhealthy" status.
+    healthcheck:
+      disable: true
     command: ["celery", "-A", "celery_worker.celery", "worker", "--loglevel=info"]
 
   beat:
@@ -120,10 +127,13 @@ services:
     environment:
       FLASK_ENV: production
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-pug}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pug_accommodation}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
       CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
+    # Same reasoning as the worker — beat doesn't serve HTTP.
+    healthcheck:
+      disable: true
     command: ["celery", "-A", "celery_worker.celery", "beat", "--loglevel=info"]
 
   frontend:

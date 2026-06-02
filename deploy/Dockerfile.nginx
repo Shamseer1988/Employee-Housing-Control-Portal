@@ -16,9 +16,15 @@ COPY snippets/ /etc/nginx/snippets/
 # config is invalid, which is what we want.
 EXPOSE 80 443
 # Probe over 127.0.0.1 (loopback) so we don't get caught by the prod
-# Cloudflare allowlist. Falls through HTTPS first then plain HTTP so
-# both compose flavours work without two Dockerfiles.
+# Cloudflare allowlist (127.0.0.1 is in the allowlist anyway). Pass
+# `Host: accommodation.parisunitedgroup.com` explicitly so the prod
+# multi-vhost config routes the request to the live accommodation
+# vhost — without it, the new default 443 catch-all closes the
+# connection (returning 444) and the container reports unhealthy.
+#
+# Plain-HTTP fallback covers the dev compose (nginx.dev.conf has a
+# single server_name _ block on :80 so the Host header is ignored).
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD wget -qO- --no-check-certificate https://127.0.0.1/health >/dev/null 2>&1 \
+  CMD wget --header="Host: accommodation.parisunitedgroup.com" -qO- --no-check-certificate https://127.0.0.1/health >/dev/null 2>&1 \
    || wget -qO- http://127.0.0.1/health >/dev/null 2>&1 \
    || exit 1
