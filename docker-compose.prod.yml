@@ -1,15 +1,27 @@
 name: pug-accommodation-prod
 
 # =============================================================================
-# PRODUCTION compose.
+# PRODUCTION compose — STANDALONE EDGE PROXY MODE.
 #
-# Cloudflare → nginx (TLS, edge allowlist) → backend / frontend / Postgres.
-# Requires:
+# nginx is NOT in this stack. A separate stand-alone nginx (also in a
+# compose stack of its own) terminates TLS for every public hostname
+# and reverse-proxies into each app's containers via a SHARED external
+# network called `pug_edge`. This compose only exposes the app's
+# backend + frontend on that network under the aliases below; the edge
+# proxy's nginx.conf references those aliases as upstream targets.
+#
+#     Cloudflare ──▶ stand-alone nginx ──┬─▶ housing-backend:5000
+#                                        └─▶ housing-frontend:3000
+#                                              (this stack)
+#
+# Prerequisites:
+#   * The external network MUST exist before this stack comes up:
+#         docker network create pug_edge       (one-time, on this host)
 #   * .env with real SECRET_KEY / JWT_SECRET_KEY / POSTGRES_PASSWORD /
-#     SUPERUSER_PASSWORD / CORS_ORIGINS (no '*') / REDIS_URL set
-#     (see .env.example)
-#   * deploy/ssl/origin.crt + deploy/ssl/origin.key from the Cloudflare
-#     dashboard (see deploy/ssl/README.txt and DEPLOY.md)
+#     SUPERUSER_PASSWORD / CORS_ORIGINS (no '*' in production).
+#   * The stand-alone edge proxy stack must include `pug_edge` in its
+#     own `networks:` block and reference the upstreams as
+#     `housing-backend:5000` / `housing-frontend:3000`.
 #
 # Launch:
 #     docker compose -f docker-compose.prod.yml up -d --build
@@ -26,7 +38,8 @@ services:
     volumes:
       - pug_pgdata:/var/lib/postgresql/data
     # No host port mapping — Postgres only reachable inside the
-    # compose network.
+    # compose network. NOT attached to pug_edge — the edge proxy must
+    # not see internal infra.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pug} -d ${POSTGRES_DB:-pug_accommodation}"]
       interval: 10s
@@ -37,6 +50,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "no", "--save", ""]
+    # default network only — same isolation rationale as db.
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -64,8 +78,9 @@ services:
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY}
       CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS (no '*' in production)}
-      # Served over HTTPS (Cloudflare → nginx TLS) so the auth cookies
-      # MUST be Secure. SameSite=Lax is correct for a same-origin SPA.
+      # Served over HTTPS (edge nginx → Cloudflare TLS) so the auth
+      # cookies MUST be Secure. SameSite=Lax is correct for a
+      # same-origin SPA.
       JWT_COOKIE_SECURE: "true"
       JWT_COOKIE_SAMESITE: "Lax"
       UPLOAD_FOLDER: /data/uploads
@@ -80,6 +95,11 @@ services:
     volumes:
       - pug_uploads:/data/uploads
       - pug_backups:/data/backups
+    networks:
+      default: {}
+      edge:
+        aliases:
+          - housing-backend     # edge nginx Host #1 /api/ + /health target
     command: >
       sh -c "flask --app wsgi wait-for-db &&
              flask --app wsgi init-db &&
@@ -108,6 +128,8 @@ services:
     volumes:
       - pug_uploads:/data/uploads
       - pug_backups:/data/backups
+    # Worker / beat do NOT join pug_edge — only HTTP-facing services
+    # should be visible to the edge proxy.
     # The shared backend image bakes a curl localhost:5000 healthcheck;
     # celery processes don't serve HTTP, so disable it to avoid a
     # permanent false "unhealthy" status.
@@ -148,72 +170,32 @@ services:
     environment:
       NODE_ENV: production
       # Server-side proxy target for /api/* (SSR / direct :3000 hits).
-      # The browser uses relative /api/* through nginx. See
+      # The browser uses relative /api/* through the edge nginx. See
       # next.config.mjs rewrites().
       BACKEND_INTERNAL_URL: http://backend:5000
-
-  nginx:
-    build:
-      context: ./deploy
-      dockerfile: Dockerfile.nginx
-      args:
-        NGINX_CONF: nginx.conf
-    restart: unless-stopped
-    depends_on:
-      - backend
-      - frontend
-    ports:
-      - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
-    volumes:
-      # Cloudflare Origin Certificate. Read-only mount.
-      # See deploy/ssl/README.txt + DEPLOY.md.
-      - ./deploy/ssl:/etc/nginx/ssl:ro
-      # TODO: enable when corporate site (host #3) is deployed — nginx
-      # serves /api/v1/uploads/ direct from this volume.
-      # - pugweb_uploads:/var/www/pug/uploads:ro
-
-  # =============================================================================
-  # TODO: enable when finance app and corporate site are deployed on this host.
-  #
-  # Stub service entries for the two extra vhosts terminated by the
-  # multi-site nginx config (deploy/nginx.conf). They are commented out
-  # — uncomment + supply real `image:` / `build:` blocks when each app
-  # is ready. The hostnames must match the `server` directive inside
-  # the corresponding `upstream` block in nginx.conf:
-  #     pugfin-backend   → upstream pugfin_backend
-  #     pugfin-frontend  → upstream pugfin_frontend
-  #     pugweb-api       → upstream pugweb_api
-  #     pugweb-frontend  → upstream pugweb_frontend
-  # =============================================================================
-  #
-  # pugfin-backend:
-  #   image: pugfin-backend:latest          # or: build: { context: ../pugfin-backend }
-  #   restart: unless-stopped
-  #   # Expose only inside the compose network; nginx is the public entry.
-  #
-  # pugfin-frontend:
-  #   image: pugfin-frontend:latest
-  #   restart: unless-stopped
-  #
-  # pugweb-api:
-  #   image: pugweb-api:latest
-  #   restart: unless-stopped
-  #
-  # pugweb-frontend:
-  #   image: pugweb-frontend:latest
-  #   restart: unless-stopped
-  #   # Reads from pugweb_uploads (external volume below); nginx also
-  #   # mounts the same volume read-only so it can serve raw bytes.
-  #   volumes:
-  #     - pugweb_uploads:/var/www/pug/uploads
+    networks:
+      default: {}
+      edge:
+        aliases:
+          - housing-frontend    # edge nginx Host #1 / target
 
 volumes:
   pug_pgdata:
   pug_uploads:
   pug_backups:
-  # TODO: enable alongside the pugweb-* services above. Marked external
-  # so the corporate CMS can write to it from its own pipeline without
-  # this compose stack owning the volume's lifecycle.
-  # pugweb_uploads:
-  #   external: true
+
+networks:
+  # `default` is the implicit per-stack network — db / redis / worker /
+  # beat / backend / frontend all sit on it and talk to each other
+  # using the short service names (backend, redis, db, ...).
+  #
+  # `pug_edge` is the SHARED external bridge created once on this host:
+  #     docker network create pug_edge
+  # Every app stack that wants its HTTP services reachable from the
+  # stand-alone edge nginx joins this same network. The aliases under
+  # each service's `networks: edge:` block (housing-backend /
+  # housing-frontend above) are how the edge nginx's upstream block
+  # addresses us.
+  edge:
+    external: true
+    name: pug_edge

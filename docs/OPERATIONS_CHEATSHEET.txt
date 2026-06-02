@@ -1,0 +1,444 @@
+================================================================================
+  Employee Housing Control Portal - Operations Cheatsheet
+  Target: docker-compose.prod.yml on Windows host (C:\Apps\Employee-Housing-Control-Portal)
+  Domain: accommodation.parisunitedgroup.com (Cloudflare Full Strict)
+  Updated: 2026-06-02
+================================================================================
+
+INDEX
+-----
+  0. ONE-TIME SHELL SHORTCUT (recommended)
+  1. UPDATE / DEPLOY (pull latest code and restart)
+  2. DAILY OPERATIONS
+  3. LOGS - WHERE THE TRUTH IS
+  4. HEALTH AND STATUS CHECKS
+  5. BACKUP / RESTORE
+  6. DATABASE ACCESS
+  7. NGINX OPERATIONS
+  8. CLEANUP / DISK SPACE
+  9. CONTAINER REBUILD MATRIX (when to use --build, --no-cache, etc.)
+  10. TROUBLESHOOTING DECISION TREE
+  11. COMMON GOTCHAS WE'VE ALREADY HIT
+
+
+================================================================================
+0. ONE-TIME SHELL SHORTCUT (do this first - saves typing every day)
+================================================================================
+
+PowerShell only - run notepad to open your profile:
+
+    notepad $PROFILE
+
+If the file doesn't exist Notepad will prompt to create it - say yes.
+Paste this at the bottom:
+
+    function dcp { docker compose -f docker-compose.prod.yml $args }
+
+Save and close. Restart PowerShell. Now every command in this file
+beginning with "docker compose -f docker-compose.prod.yml ..." can be
+shortened to "dcp ...".
+
+For plain cmd.exe (not PowerShell) there's no equivalent - you'll have
+to type the full command every time. Switching to PowerShell is worth it.
+
+
+================================================================================
+1. UPDATE / DEPLOY (the workflow you'll run most often)
+================================================================================
+
+Standard "pull latest code and restart" sequence:
+
+    cd C:\Apps\Employee-Housing-Control-Portal
+    git pull
+    docker compose -f docker-compose.prod.yml build
+    docker compose -f docker-compose.prod.yml up -d
+
+The "build" step is the key - "up -d" alone reuses cached images even
+when source files have changed.
+
+If a build keeps showing "stale" behaviour or a Dependabot bump didn't
+take effect:
+
+    docker compose -f docker-compose.prod.yml build --no-cache
+
+That forces every layer to be rebuilt from scratch. Slower (~3-5 min)
+but eliminates the "stale image" footgun.
+
+To redeploy a SINGLE service (most common: backend after a config change):
+
+    docker compose -f docker-compose.prod.yml build backend
+    docker compose -f docker-compose.prod.yml up -d backend
+
+The "up -d backend" only recreates that one container.
+
+
+================================================================================
+2. DAILY OPERATIONS
+================================================================================
+
+Start everything:
+    docker compose -f docker-compose.prod.yml up -d
+
+Stop everything (containers removed, data preserved):
+    docker compose -f docker-compose.prod.yml down
+
+Stop AND wipe data volumes (DESTRUCTIVE - kills DB / uploads / backups):
+    docker compose -f docker-compose.prod.yml down -v
+
+Restart a single service:
+    docker compose -f docker-compose.prod.yml restart backend
+    docker compose -f docker-compose.prod.yml restart nginx
+    docker compose -f docker-compose.prod.yml restart worker beat
+
+Status of all containers:
+    docker compose -f docker-compose.prod.yml ps
+
+Status with timestamps + ports + health:
+    docker compose -f docker-compose.prod.yml ps -a
+
+Recreate all containers without rebuilding (after editing compose YAML):
+    docker compose -f docker-compose.prod.yml up -d --force-recreate
+
+
+================================================================================
+3. LOGS - WHERE THE TRUTH IS
+================================================================================
+
+Tail all services' logs together (live, Ctrl-C to stop):
+    docker compose -f docker-compose.prod.yml logs -f
+
+Tail one service only:
+    docker compose -f docker-compose.prod.yml logs -f backend
+    docker compose -f docker-compose.prod.yml logs -f worker
+    docker compose -f docker-compose.prod.yml logs -f nginx
+    docker compose -f docker-compose.prod.yml logs -f db
+
+Last 200 lines (no follow):
+    docker compose -f docker-compose.prod.yml logs --tail=200 backend
+
+Logs since a relative time:
+    docker compose -f docker-compose.prod.yml logs --since=10m
+    docker compose -f docker-compose.prod.yml logs --since=1h backend
+
+Logs to a file:
+    docker compose -f docker-compose.prod.yml logs > stack.log
+
+Find specific errors in backend log:
+    docker compose -f docker-compose.prod.yml logs backend | findstr /i error
+    docker compose -f docker-compose.prod.yml logs worker | findstr /i transport
+    docker compose -f docker-compose.prod.yml logs backend | findstr "500 "
+
+
+================================================================================
+4. HEALTH AND STATUS CHECKS
+================================================================================
+
+From the host (loopback):
+    curl -k https://localhost/health
+    curl http://localhost:8080/api/v1/health     (won't work - prod doesn't expose 8080)
+
+From inside the backend container:
+    docker compose -f docker-compose.prod.yml exec backend curl localhost:5000/api/v1/health
+
+From outside the office (use phone on cellular):
+    curl -I https://accommodation.parisunitedgroup.com/health
+    Expect: HTTP/2 200, cf-ray header present
+
+Verify env vars are correct in the running container:
+    docker compose -f docker-compose.prod.yml exec backend env | findstr REDIS_URL
+    docker compose -f docker-compose.prod.yml exec backend env | findstr DATABASE_URL
+    docker compose -f docker-compose.prod.yml exec backend env | findstr CORS_ORIGINS
+
+Verify a source file made it into the container (catches "stale image" bugs):
+    docker compose -f docker-compose.prod.yml exec backend grep dockerenv /app/config.py
+    docker compose -f docker-compose.prod.yml exec backend cat /app/wsgi.py
+
+Check that the Cloudflare cert files are mounted correctly:
+    docker compose -f docker-compose.prod.yml exec nginx ls -l /etc/nginx/ssl/
+    Expect: origin.crt and origin.key with sane sizes (not 0 bytes)
+
+
+================================================================================
+5. BACKUP / RESTORE
+================================================================================
+
+The Settings -> Backup UI is the primary way to manage backups.
+These CLI commands are for emergencies / scripted ops.
+
+Manual backup via the backend container (drops file into pug_backups volume):
+    docker compose -f docker-compose.prod.yml exec backend ^
+      python -c "from app import create_app; from app.services import backup; ^
+                 app=create_app(); ctx=app.app_context(); ctx.push(); ^
+                 print(backup.create_backup())"
+
+List backups inside the container:
+    docker compose -f docker-compose.prod.yml exec backend ls -lh /data/backups
+
+Copy a backup OUT of the container to the Windows host:
+    docker compose -f docker-compose.prod.yml cp ^
+      backend:/data/backups/<filename>.dump ^
+      ./backups-out/<filename>.dump
+
+Copy a backup INTO the container (for restore):
+    docker compose -f docker-compose.prod.yml cp ^
+      ./local-file.dump ^
+      backend:/data/backups/local-file.dump
+
+Pure pg_dump (skips our app's backup module) - useful for cron jobs:
+    docker compose -f docker-compose.prod.yml exec -T db ^
+      pg_dump -U pug -Fc pug_accommodation > backup-%date:~-4,4%%date:~-10,2%%date:~-7,2%.dump
+
+
+================================================================================
+6. DATABASE ACCESS
+================================================================================
+
+Open a psql shell:
+    docker compose -f docker-compose.prod.yml exec db psql -U pug pug_accommodation
+
+Run a single SQL command:
+    docker compose -f docker-compose.prod.yml exec db psql -U pug -d pug_accommodation -c ^
+      "SELECT count(*) FROM employees;"
+
+List all tables:
+    docker compose -f docker-compose.prod.yml exec db psql -U pug -d pug_accommodation -c "\dt"
+
+DB size:
+    docker compose -f docker-compose.prod.yml exec db psql -U pug -d pug_accommodation -c ^
+      "SELECT pg_size_pretty(pg_database_size('pug_accommodation'));"
+
+Active connections:
+    docker compose -f docker-compose.prod.yml exec db psql -U pug -d pug_accommodation -c ^
+      "SELECT count(*), state FROM pg_stat_activity GROUP BY state;"
+
+Apply a Flask migration manually:
+    docker compose -f docker-compose.prod.yml exec backend flask --app wsgi migrate-all
+
+
+================================================================================
+7. NGINX OPERATIONS
+================================================================================
+
+Verify config syntax inside the container:
+    docker compose -f docker-compose.prod.yml exec nginx nginx -t
+
+Show resolved config (after all includes are expanded):
+    docker compose -f docker-compose.prod.yml exec nginx nginx -T
+
+Just the server_name lines from the resolved config:
+    docker compose -f docker-compose.prod.yml exec nginx nginx -T 2>nul | findstr server_name
+
+Reload nginx WITHOUT downtime (after editing nginx.conf in the image):
+    docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
+
+Restart nginx (with brief downtime, but cleaner):
+    docker compose -f docker-compose.prod.yml restart nginx
+
+If you've ONLY edited deploy/ssl/origin.crt or origin.key (live cert
+rotation) - the volume is bind-mounted so no rebuild needed, just
+reload:
+    docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
+
+If you've edited deploy/nginx.conf (config baked into image) - need
+to rebuild:
+    docker compose -f docker-compose.prod.yml build nginx
+    docker compose -f docker-compose.prod.yml up -d nginx
+
+
+================================================================================
+8. CLEANUP / DISK SPACE
+================================================================================
+
+Show docker disk usage:
+    docker system df
+
+Show containers + images + volumes details:
+    docker system df -v
+
+Clean dangling images (safe - won't touch running images):
+    docker image prune -f
+
+Clean ALL unused images (anything not currently used by a container):
+    docker image prune -a -f
+
+Clean build cache (often the biggest space hog after many builds):
+    docker builder prune -f
+
+Aggressive cleanup - everything stopped + dangling + unused (preserves
+named volumes, so DB data is safe):
+    docker system prune -a -f
+
+NUCLEAR cleanup - also removes named volumes (LOSES DB / UPLOADS):
+    docker system prune -a -f --volumes
+
+Check how big our specific volumes are:
+    docker system df -v | findstr pug
+
+
+================================================================================
+9. CONTAINER REBUILD MATRIX (when to use what)
+================================================================================
+
+What you changed                | Command
+--------------------------------|------------------------------------------
+A Python file in backend/       | docker compose -f docker-compose.prod.yml build backend
+                                | docker compose -f docker-compose.prod.yml up -d backend
+
+A TS/TSX file in frontend/      | docker compose -f docker-compose.prod.yml build frontend
+                                | docker compose -f docker-compose.prod.yml up -d frontend
+
+deploy/nginx.conf or            | docker compose -f docker-compose.prod.yml build nginx
+deploy/snippets/*.conf          | docker compose -f docker-compose.prod.yml up -d nginx
+
+deploy/ssl/origin.crt or .key   | docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
+                                | (no rebuild - it's a bind mount)
+
+backend/requirements.txt        | docker compose -f docker-compose.prod.yml build --no-cache backend
+                                | docker compose -f docker-compose.prod.yml up -d backend worker beat
+
+frontend/package.json           | docker compose -f docker-compose.prod.yml build --no-cache frontend
+                                | docker compose -f docker-compose.prod.yml up -d frontend
+
+docker-compose.prod.yml (env)   | docker compose -f docker-compose.prod.yml up -d
+                                | (no build needed - compose applies new env at recreate)
+
+docker-compose.prod.yml (image, | docker compose -f docker-compose.prod.yml build [service]
+volume, build args)             | docker compose -f docker-compose.prod.yml up -d
+
+backend/.env or .env at root    | docker compose -f docker-compose.prod.yml up -d
+                                | (env is read at container start - just recreate)
+
+
+================================================================================
+10. TROUBLESHOOTING DECISION TREE
+================================================================================
+
+"Site is down / Cloudflare 522":
+    1. docker compose -f docker-compose.prod.yml ps
+       Are all containers Up? If not -> see "container won't start".
+    2. docker compose -f docker-compose.prod.yml logs --tail=50 nginx
+    3. Verify office router still port-forwards 80/443 to this PC.
+    4. Verify DDNS is updating: docker logs cloudflare-ddns (if running)
+
+"Cloudflare error 525 / 526" (SSL issue):
+    1. Check the Origin Cert files exist and are not 0 bytes:
+       docker compose -f docker-compose.prod.yml exec nginx ls -l /etc/nginx/ssl/
+    2. Verify CF zone is on Full (Strict) in dashboard.
+    3. Verify cert covers all your live hostnames (run inside nginx):
+       docker compose -f docker-compose.prod.yml exec nginx ^
+         openssl x509 -in /etc/nginx/ssl/origin.crt -text -noout | findstr "Subject:\|DNS:"
+
+"Backend keeps restarting / unhealthy":
+    1. docker compose -f docker-compose.prod.yml logs --tail=200 backend
+    2. Look for "Insecure production configuration" - missing .env values.
+    3. Look for "Connection refused" to redis or db - container DNS issue;
+       try docker compose -f docker-compose.prod.yml down then up -d.
+
+"Worker keeps retrying Cannot connect to redis://localhost:6379":
+    docker compose -f docker-compose.prod.yml exec worker env | findstr REDIS_URL
+    Should print "REDIS_URL=redis://redis:6379/0". If it says localhost,
+    something in .env-at-repo-root is overriding via compose substitution
+    (we fixed this on 2026-06-02 by hardcoding the value in the YAML).
+
+"Postgres won't start: database files are incompatible":
+    You upgraded the postgres major version against an existing
+    pug_pgdata volume. Either:
+      a) Revert image to the previous major (in docker-compose.prod.yml).
+      b) Wipe + restore: take backup -> down -v -> up -d -> restore.
+
+"Backup button hangs forever (Restoring...)":
+    Should be fixed - we changed the strategy to drop-and-recreate.
+    If it ever happens again: docker compose -f docker-compose.prod.yml ^
+    restart backend (interrupts the request; data is unaffected).
+
+"docker compose ps shows nginx (unhealthy) but site works":
+    Cosmetic. Healthcheck inside the container hits 127.0.0.1 with no
+    Host header. Real traffic from Cloudflare carries the right Host
+    header. Already fixed on 2026-06-02 - if you see it again, rebuild
+    nginx image: docker compose -f docker-compose.prod.yml build nginx
+
+"Frontend shows 'Failed to proxy ... socket hang up'":
+    SSE proxy noise - already silenced via instrumentation.ts. Cosmetic.
+    If on the WORKER side you see retries to localhost:6379, see the
+    REDIS_URL section above.
+
+
+================================================================================
+11. COMMON GOTCHAS WE'VE ALREADY HIT
+================================================================================
+
+> "git status says up to date but file doesn't have the fix":
+   You're on a feature branch. Verify with:
+       git branch --show-current
+       findstr /n "<keyword>" path\to\file
+   If file is correct on disk, the container may be stale - rebuild.
+
+> "git pull says Already up to date":
+   You're on a branch that already contains the commits. main and
+   claude/dreamy-fermat-JqZ1O often point at the same SHA.
+
+> "docker compose up -d but my code change didn't apply":
+   "up -d" alone doesn't rebuild. Run build first or use --build flag:
+       docker compose -f docker-compose.prod.yml up -d --build
+
+> "Different image for prod vs local":
+   Prod images are named pug-accommodation-prod-*, local are
+   pug-accommodation-*. Rebuilding one does NOT rebuild the other.
+   Always specify -f docker-compose.prod.yml in prod.
+
+> "DB volume from PG16 won't load on PG17":
+   Postgres major versions can't read older data directories. After
+   any postgres image major bump, plan a backup -> down -v -> restore
+   cycle.
+
+> "backend/.env vs .env at repo root":
+   Two different files with two different purposes:
+     backend/.env     - read by Python via load_dotenv() (NATIVE dev only;
+                        skipped inside Docker thanks to /.dockerenv guard)
+     ./env (root)     - read by Docker Compose for $VAR substitution
+                        in docker-compose.*.yml at parse time.
+   Both can have the same variable name but completely different
+   behaviours. When in doubt: prod env values live in compose YAML
+   (hardcoded or via .env at root), not in backend/.env.
+
+> "REDIS_URL keeps being localhost":
+   That bug is fixed in docker-compose.prod.yml (hardcoded redis URL).
+   If you ever re-introduce ${REDIS_URL:-...} substitution and the
+   bug returns: edit .env at repo root and remove the REDIS_URL line.
+
+> "Backend rebuilt but worker still old":
+   Worker and beat use the same image as backend. After rebuilding
+   backend, also recreate worker and beat:
+       docker compose -f docker-compose.prod.yml up -d worker beat
+
+
+================================================================================
+QUICK REFERENCE - DAILY COMMANDS (copy-paste ready)
+================================================================================
+
+Update + redeploy:
+    cd C:\Apps\Employee-Housing-Control-Portal
+    git pull
+    docker compose -f docker-compose.prod.yml build
+    docker compose -f docker-compose.prod.yml up -d
+    docker compose -f docker-compose.prod.yml ps
+
+Stop everything:
+    docker compose -f docker-compose.prod.yml down
+
+Live logs:
+    docker compose -f docker-compose.prod.yml logs -f
+
+Container health snapshot:
+    docker compose -f docker-compose.prod.yml ps
+
+Verify env inside running backend:
+    docker compose -f docker-compose.prod.yml exec backend env | findstr REDIS_URL
+
+Disk cleanup (safe):
+    docker image prune -a -f
+    docker builder prune -f
+
+================================================================================
+END OF FILE
+================================================================================
