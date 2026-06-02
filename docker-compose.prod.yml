@@ -159,8 +159,51 @@ services:
       # Cloudflare Origin Certificate. Read-only mount.
       # See deploy/ssl/README.txt + DEPLOY.md.
       - ./deploy/ssl:/etc/nginx/ssl:ro
+      # TODO: enable when corporate site (host #3) is deployed — nginx
+      # serves /api/v1/uploads/ direct from this volume.
+      # - pugweb_uploads:/var/www/pug/uploads:ro
+
+  # =============================================================================
+  # TODO: enable when finance app and corporate site are deployed on this host.
+  #
+  # Stub service entries for the two extra vhosts terminated by the
+  # multi-site nginx config (deploy/nginx.conf). They are commented out
+  # — uncomment + supply real `image:` / `build:` blocks when each app
+  # is ready. The hostnames must match the `server` directive inside
+  # the corresponding `upstream` block in nginx.conf:
+  #     pugfin-backend   → upstream pugfin_backend
+  #     pugfin-frontend  → upstream pugfin_frontend
+  #     pugweb-api       → upstream pugweb_api
+  #     pugweb-frontend  → upstream pugweb_frontend
+  # =============================================================================
+  #
+  # pugfin-backend:
+  #   image: pugfin-backend:latest          # or: build: { context: ../pugfin-backend }
+  #   restart: unless-stopped
+  #   # Expose only inside the compose network; nginx is the public entry.
+  #
+  # pugfin-frontend:
+  #   image: pugfin-frontend:latest
+  #   restart: unless-stopped
+  #
+  # pugweb-api:
+  #   image: pugweb-api:latest
+  #   restart: unless-stopped
+  #
+  # pugweb-frontend:
+  #   image: pugweb-frontend:latest
+  #   restart: unless-stopped
+  #   # Reads from pugweb_uploads (external volume below); nginx also
+  #   # mounts the same volume read-only so it can serve raw bytes.
+  #   volumes:
+  #     - pugweb_uploads:/var/www/pug/uploads
 
 volumes:
   pug_pgdata:
   pug_uploads:
   pug_backups:
+  # TODO: enable alongside the pugweb-* services above. Marked external
+  # so the corporate CMS can write to it from its own pipeline without
+  # this compose stack owning the volume's lifecycle.
+  # pugweb_uploads:
+  #   external: true
