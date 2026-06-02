@@ -3,6 +3,18 @@
   Target: docker-compose.prod.yml on Windows host (C:\Apps\Employee-Housing-Control-Portal)
   Domain: accommodation.parisunitedgroup.com (Cloudflare Full Strict)
   Updated: 2026-06-02
+
+  >>> ARCHITECTURE: standalone edge proxy <<<
+  This stack runs db / redis / backend / worker / beat / frontend only.
+  nginx + TLS termination live in a SEPARATE compose stack ("the edge
+  proxy") that shares the external Docker network `pug_edge` with this
+  one. Every command in this cheatsheet that mentions "nginx" refers
+  to the EDGE PROXY stack, not this one — run those commands from the
+  edge proxy's folder, not C:\Apps\Employee-Housing-Control-Portal.
+
+  This stack's HTTP-facing services are visible to the edge proxy as:
+    housing-backend:5000     (backend service, alias under `edge` net)
+    housing-frontend:3000    (frontend service, alias under `edge` net)
 ================================================================================
 
 INDEX
@@ -234,15 +246,12 @@ Reload nginx WITHOUT downtime (after editing nginx.conf in the image):
 Restart nginx (with brief downtime, but cleaner):
     docker compose -f docker-compose.prod.yml restart nginx
 
-If you've ONLY edited deploy/ssl/origin.crt or origin.key (live cert
-rotation) - the volume is bind-mounted so no rebuild needed, just
-reload:
-    docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
+All nginx ops happen in the EDGE PROXY stack's folder, not here.
+From that folder:
 
-If you've edited deploy/nginx.conf (config baked into image) - need
-to rebuild:
-    docker compose -f docker-compose.prod.yml build nginx
-    docker compose -f docker-compose.prod.yml up -d nginx
+    docker compose exec nginx nginx -t
+    docker compose exec nginx nginx -s reload      (live cert rotation)
+    docker compose build nginx && docker compose up -d nginx   (config change)
 
 
 ================================================================================
@@ -287,11 +296,7 @@ A Python file in backend/       | docker compose -f docker-compose.prod.yml buil
 A TS/TSX file in frontend/      | docker compose -f docker-compose.prod.yml build frontend
                                 | docker compose -f docker-compose.prod.yml up -d frontend
 
-deploy/nginx.conf or            | docker compose -f docker-compose.prod.yml build nginx
-deploy/snippets/*.conf          | docker compose -f docker-compose.prod.yml up -d nginx
-
-deploy/ssl/origin.crt or .key   | docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
-                                | (no rebuild - it's a bind mount)
+nginx config / TLS cert / etc.  | (changed in the edge proxy stack, not this repo)
 
 backend/requirements.txt        | docker compose -f docker-compose.prod.yml build --no-cache backend
                                 | docker compose -f docker-compose.prod.yml up -d backend worker beat

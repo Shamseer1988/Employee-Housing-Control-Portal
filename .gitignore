@@ -45,11 +45,8 @@ backend/.venv-test/
 
 # Production TLS material — never commit (Phase 11).
 # Track only the README + layout templates; the real origin.crt /
-# origin.key are operator-placed at deploy time.
-deploy/ssl/*
-!deploy/ssl/README.txt
-!deploy/ssl/origin.crt.example
-!deploy/ssl/origin.key.example
+# deploy/ is no longer in this repo — nginx + TLS terminate at a
+# standalone edge proxy stack (see docker-compose.prod.yml header).
 
 # Backup files dumped by the backend into the bind-mounted host folder.
 # Keep the README so the directory survives a fresh clone.

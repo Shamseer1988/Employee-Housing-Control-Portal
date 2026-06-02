@@ -180,8 +180,8 @@ The host-side `pug-backup.log` is rotated via `/etc/logrotate.d/pug-backup`:
   default config above which speaks plain HTTP to Cloudflare.
 - Page Rules / WAF: keep `/api/v1/auth/login` under stricter rate
   limiting (e.g. 30 requests / minute / IP).
-- Cloudflare's `CF-Connecting-IP` header is already trusted in
-  `deploy/nginx.conf`.
+- Cloudflare's `CF-Connecting-IP` header is trusted by the standalone
+  edge proxy stack (lives outside this repo).
 
 ---
 

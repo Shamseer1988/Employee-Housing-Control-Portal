@@ -197,7 +197,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [backend, frontend, nginx]
+        service: [backend, frontend]
     steps:
       - uses: actions/checkout@v4
       - name: Build matrix image
@@ -207,15 +207,7 @@ jobs:
           JWT_SECRET_KEY: ci-jwt-secret-padded-to-32-bytes-5678
           SUPERUSER_PASSWORD: ChangeMe123!
           CORS_ORIGINS: http://localhost
-        run: |
-          # nginx no longer lives in docker-compose.yml (it's prod-only),
-          # so build the matrix-tagged image directly from deploy/.
-          if [ "${{ matrix.service }}" = "nginx" ]; then
-            docker build -f deploy/Dockerfile.nginx \
-              -t pug-accommodation-nginx:latest ./deploy
-          else
-            docker compose build ${{ matrix.service }}
-          fi
+        run: docker compose build ${{ matrix.service }}
       - name: Trivy scan
         uses: aquasecurity/trivy-action@master
         with:

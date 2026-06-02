@@ -230,6 +230,27 @@
   </div>
 </header>
 
+<div class="callout danger" style="margin-bottom:24px">
+  <span class="label">Architecture change — read first</span>
+  <p>Since this guide was first generated, the in-stack nginx has been
+  removed from <code>docker-compose.prod.yml</code>. TLS termination,
+  the Cloudflare allowlist, and host-based routing now live in a
+  <strong>separate "edge proxy" compose stack</strong> that shares the
+  external Docker network <code>pug_edge</code> with this one. Every
+  Cloudflare cert / nginx.conf / <code>deploy/ssl/</code> reference
+  below now applies to that edge proxy stack's folder, not this
+  repo (which no longer has a <code>deploy/</code> directory).</p>
+  <p>What still applies verbatim: the Cloudflare dashboard recipe
+  (Origin Cert minting, DNS A record, SSL/TLS mode), the Cloudflare
+  Tunnel / DDNS setup, the office firewall + port-forwarding, and
+  the verification curls.</p>
+  <p>What changes: cert files go into
+  <code>&lt;edge-proxy-stack&gt;/deploy/ssl/</code> instead of
+  <code>deploy/ssl/</code>; nginx.conf is edited inside the edge proxy
+  stack; the bring-up sequence requires
+  <code>docker network create pug_edge</code> on the host first.</p>
+</div>
+
 <nav class="toc">
   <h2>Contents</h2>
   <ol>

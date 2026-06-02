@@ -796,9 +796,13 @@ Container build
 - `frontend/Dockerfile` — three-stage build (deps → builder → runner)
   on `node:20-alpine`, accepts a build-time `NEXT_PUBLIC_API_URL`
   arg, runs as non-root with a `wget` healthcheck.
-- `deploy/Dockerfile.nginx` + `deploy/nginx.conf` — reverse-proxy in
-  front of both services, gzip, real-IP from Cloudflare
-  (`CF-Connecting-IP`), 30 MB upload limit, `/health` shortcut.
+- **Standalone edge proxy** — nginx + TLS terminate in a separate
+  compose stack ("the edge proxy") that shares the external Docker
+  network `pug_edge` with this one. This stack exposes the app on
+  `pug_edge` under the aliases `housing-backend:5000` and
+  `housing-frontend:3000`; the edge proxy's nginx upstreams target
+  those names. The Cloudflare Origin Cert + nginx.conf live in the
+  edge proxy stack's repo, not here.
 - `backend/gunicorn.conf.py` — 2×cores+1 workers (cap 16),
   4 threads, JSON-format access log to stdout, 60s timeout.
 

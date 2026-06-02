@@ -1,19 +1,50 @@
 # Production deployment — Cloudflare Full (Strict)
 
+> ## ⚠️ Architecture change — read this first
+>
+> As of the standalone-edge-proxy migration this repo **no longer
+> ships an in-stack nginx**. TLS termination, the Cloudflare allowlist,
+> and host-based routing all live in a **separate compose stack** ("the
+> edge proxy") that runs alongside this one on the same host. The two
+> stacks share an external Docker network called `pug_edge`.
+>
+> What that means for the procedures below:
+>
+> * **Cloudflare Origin Cert** — still minted from the same dashboard,
+>   but the `origin.crt` / `origin.key` files go into the **edge proxy
+>   stack's** folder (e.g. `C:\Apps\edge-proxy\deploy\ssl\`), NOT this
+>   repo. Old paths like `<edge-proxy>/deploy/ssl/origin.crt` here are stale.
+> * **nginx config** — owned by the edge proxy stack. The upstream
+>   names it should target are `housing-backend:5000` and
+>   `housing-frontend:3000` (declared as aliases under the `edge`
+>   network in this repo's `docker-compose.prod.yml`).
+> * **Port forwarding, DNS, DDNS** — unchanged. The edge proxy still
+>   binds 80/443 on the host.
+> * **One-time prerequisite** — `docker network create pug_edge` on
+>   the host before either stack comes up.
+
 Target architecture:
 
 ```
    browser ──https──▶  Cloudflare edge  ──https──▶  your-office:443
-                          (proxied A)             (nginx)  ──http──▶  backend:5000
-                                                                 ──http──▶  frontend:3000
-                                                                 ──tcp──▶   postgres / redis
+                          (proxied A)         (standalone edge nginx)
+                                                       │
+                            pug_edge bridge network    │
+                            ┌──────────────────────────┘
+                            ▼
+                    housing-backend:5000   (this stack's backend)
+                    housing-frontend:3000  (this stack's frontend)
+                            │
+                            └─▶  postgres / redis / worker / beat
+                                 (all on this stack's default network,
+                                  invisible to the edge proxy)
 ```
 
 * TLS mode at Cloudflare: **Full (Strict)**.
-* Origin certificate: Cloudflare-minted, RSA, 15-year, terminated at our
-  nginx.
+* Origin certificate: Cloudflare-minted, RSA, 15-year, terminated at
+  the standalone edge proxy.
 * Anyone trying to reach the static IP directly (bypassing Cloudflare)
-  gets a 403 from nginx's edge allowlist.
+  gets a 403 from the edge proxy's allowlist.
 
 Live configuration:
 
@@ -42,8 +73,8 @@ the dedicated section.
           subdomains under the same cert later
     * Certificate validity: **15 years** (longest Cloudflare offers)
 3.  Cloudflare will show two PEM blocks **once**. Save them now:
-    * The **Origin Certificate** block →  `deploy/ssl/origin.crt`
-    * The **Private key** block        →  `deploy/ssl/origin.key`
+    * The **Origin Certificate** block →  `<edge-proxy>/deploy/ssl/origin.crt`
+    * The **Private key** block        →  `<edge-proxy>/deploy/ssl/origin.key`
 
     The dashboard never shows the private key again. If you close the
     page without saving it, you must revoke the cert and mint a new
@@ -51,25 +82,24 @@ the dedicated section.
 
     Each file must start with `-----BEGIN ...-----` and end with
     `-----END ...-----`, no extra blank lines outside the markers.
-    Layout reference: `deploy/ssl/origin.crt.example`,
-    `deploy/ssl/origin.key.example`.
+    (Cert + key layout is the standard PEM format Cloudflare hands you
+    — no example files in this repo since `deploy/` has been removed.)
 
 4.  Lock down the key on the host:
 
     ```bash
     # Linux / macOS
-    chmod 644 deploy/ssl/origin.crt
-    chmod 600 deploy/ssl/origin.key
+    chmod 644 <edge-proxy>/deploy/ssl/origin.crt
+    chmod 600 <edge-proxy>/deploy/ssl/origin.key
     ```
 
     On Windows see the dedicated section below — chmod is a no-op on
     NTFS; use Properties → Security to restrict origin.key to your
     user account.
 
-⚠️  `.gitignore` already excludes `deploy/ssl/*` (except the README
-and the `.example` templates). If
-you accidentally commit either file, **revoke the certificate** in
-Cloudflare and mint a new one.
+⚠️ The edge proxy stack's `.gitignore` should exclude `deploy/ssl/*` so
+the cert never enters Git. If you accidentally commit either file,
+**revoke the certificate** in Cloudflare and mint a new one.
 
 ---
 
@@ -102,7 +132,7 @@ The lists are at:
 * <https://www.cloudflare.com/ips-v6>
 
 (If you skip the firewall ACL, nginx's `geo`-backed allowlist still
-returns 403 to direct hits — see `deploy/nginx.conf`.)
+returns 403 to direct hits — see `<edge-proxy>/deploy/nginx.conf`.)
 
 ---
 
@@ -134,11 +164,11 @@ NEXT_PUBLIC_SENTRY_DSN=<browser sentry dsn>
 METRICS_TOKEN=<random secret if /metrics is publicly reachable>
 ```
 
-Place the Cloudflare cert (from step 1) into `deploy/ssl/` and confirm
+Place the Cloudflare cert (from step 1) into `<edge-proxy>/deploy/ssl/` and confirm
 permissions:
 
 ```bash
-ls -l deploy/ssl/
+ls -l <edge-proxy>/deploy/ssl/
 # -rw-r--r--  origin.crt
 # -rw-------  origin.key
 ```
@@ -194,7 +224,7 @@ docker compose -f docker-compose.prod.yml logs backend --tail 20 | grep "request
 ```
 
 If `remote_addr` looks like an internal Docker IP, the Cloudflare
-ranges in `deploy/nginx.conf` have drifted — see the next section.
+ranges in `<edge-proxy>/deploy/nginx.conf` have drifted — see the next section.
 
 ---
 
@@ -212,7 +242,7 @@ on either NTFS (`C:\Users\You\Documents\Employee-Housing-Control-Portal`)
 or inside WSL2 (`\\wsl$\Ubuntu\home\you\...`). WSL2 is faster for I/O
 heavy operations (DB volumes, builds) but either works.
 
-The bind-mount path `./deploy/ssl` is relative to the compose file,
+The bind-mount path `<edge-proxy>/deploy/ssl` is relative to the compose file,
 so it resolves correctly regardless of host OS.
 
 ### 2. Cert file permissions
@@ -305,14 +335,14 @@ app is up.
 ## Updating Cloudflare ranges
 
 Cloudflare adds new edge ranges occasionally. To refresh the lists in
-`deploy/nginx.conf`:
+`<edge-proxy>/deploy/nginx.conf`:
 
 ```bash
 curl -s https://www.cloudflare.com/ips-v4
 curl -s https://www.cloudflare.com/ips-v6
 ```
 
-Edit the two range blocks at the top of `deploy/nginx.conf` (both
+Edit the two range blocks at the top of `<edge-proxy>/deploy/nginx.conf` (both
 `set_real_ip_from` and `geo $cf_edge`), then:
 
 ```bash
@@ -347,7 +377,7 @@ Outside-the-repo actions an operator MUST take before go-live:
 
 - [ ] Generate Cloudflare Origin Certificate (15-year RSA, hostnames
       include `accommodation.parisunitedgroup.com`) and place
-      `deploy/ssl/origin.crt` + `deploy/ssl/origin.key` on the host
+      `<edge-proxy>/deploy/ssl/origin.crt` + `<edge-proxy>/deploy/ssl/origin.key` on the host
       with `0600` on the key.
 - [ ] Cloudflare DNS: A record `accommodation → <YOUR_STATIC_PUBLIC_IP>`,
       **Proxied** (orange cloud).
@@ -401,7 +431,7 @@ Outside-the-repo actions an operator MUST take before go-live:
 ## Multi-site hosting on the same box
 
 This compose stack runs three independent sites behind one nginx
-container (`deploy/nginx.conf`):
+container (`<edge-proxy>/deploy/nginx.conf`):
 
 | Hostname                              | App                                | Status today      |
 |---------------------------------------|------------------------------------|-------------------|
@@ -409,7 +439,7 @@ container (`deploy/nginx.conf`):
 | `pugfin.parisunitedgroup.com`         | PUG Finance app                    | Planned (stubbed) |
 | `parisunitedgroup.com` + `www.`       | PUG corporate marketing site       | Planned (stubbed) |
 
-Each is its own `server` block in `deploy/nginx.conf` with its own
+Each is its own `server` block in `<edge-proxy>/deploy/nginx.conf` with its own
 upstreams and CSP. The Cloudflare edge allowlist, real-IP block, TLS
 session cache, and gzip rules are defined once at the top and apply
 everywhere. An explicit catch-all `server` block on `:443` returns
@@ -431,8 +461,8 @@ two sites online, **re-mint the cert** to cover all three:
    parisunitedgroup.com
    ```
 4. Save the new "Origin Certificate" block to
-   `deploy/ssl/origin.crt` and the "Private key" block to
-   `deploy/ssl/origin.key` (overwriting the previous single-host
+   `<edge-proxy>/deploy/ssl/origin.crt` and the "Private key" block to
+   `<edge-proxy>/deploy/ssl/origin.key` (overwriting the previous single-host
    files).
 5. Bounce nginx so it picks up the new cert:
    ```
