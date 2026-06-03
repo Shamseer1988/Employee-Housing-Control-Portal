@@ -1,0 +1,5 @@
+-----BEGIN CERTIFICATE-----
+(paste the "Origin Certificate" block from the Cloudflare dashboard
+here, with the BEGIN/END markers — entire base64 body included.
+Then save the real file as origin.crt next to this one.)
+-----END CERTIFICATE-----
