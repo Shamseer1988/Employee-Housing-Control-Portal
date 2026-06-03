@@ -93,11 +93,10 @@ def register_commands(app: Flask) -> None:
     def wait_for_db(timeout):
         """Block until the database accepts a connection.
 
-        depends_on:service_healthy in compose only proves Postgres is up
-        inside its own container; cross-container DNS on Docker Desktop /
-        WSL2 can lag a few seconds after the network is (re)created. This
-        polls ``SELECT 1`` so the boot chain waits instead of crash-looping
-        on a transient ``could not translate host name "db"``.
+        Postgres may finish starting a few seconds after its service
+        manager marks it Started. Calling SELECT 1 in a polling loop
+        avoids the backend crash-looping on a transient connection
+        refused while the DB is still warming up.
         """
         import time
         from sqlalchemy import text
@@ -122,7 +121,7 @@ def register_commands(app: Flask) -> None:
     def init_db():
         """Create all tables from the SQLAlchemy models.
 
-        Use this for fresh deployments (Docker quick-start, CI tests) where
+        Use this for fresh deployments (first-time install, CI tests) where
         no Alembic migration history exists. The command is idempotent: if
         a table is already present, SQLAlchemy leaves it alone. After
         running, switch to `flask db upgrade` for subsequent schema changes

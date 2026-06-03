@@ -2,8 +2,9 @@
 
 publish(channel, payload) broadcasts a JSON payload to every connected
 SSE client subscribed to `channel`. Backed by Redis pub/sub when
-REDIS_URL is set so events fan out across gunicorn workers; falls back
-to an in-process queue otherwise (single-worker dev / tests).
+REDIS_URL is set so events fan out across separate processes (worker,
+beat, additional waitress instances if any); falls back to an
+in-process queue otherwise (single-process dev / tests).
 
 Channels:
   * 'occupancy' — bed/room status changes (assignment, transfer, etc.)

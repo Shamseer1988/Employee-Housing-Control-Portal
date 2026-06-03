@@ -240,13 +240,14 @@ def restore_backup(source: Path) -> None:
     Strategy: drop the app database and recreate it empty, then
     pg_restore into the fresh DB. We do NOT use pg_restore --clean
     because that issues per-table DROP TABLE statements which deadlock
-    against other gunicorn workers / background tasks holding open
+    against other waitress threads / background tasks holding open
     sessions — the request appears to freeze indefinitely.
 
     Drop / create are issued against the `postgres` admin DB so we
     aren't connected to the database we're dropping. Before the drop
-    we explicitly terminate any other backend connections (gunicorn
-    siblings, celery worker, beat) — without that DROP DATABASE would
+    we explicitly terminate any other backend connections (sibling
+    waitress threads, celery worker, beat) — without that DROP
+    DATABASE would
     block on the same locks pg_restore --clean used to block on.
 
     After the restore SQLAlchemy's engine pool is disposed; the next

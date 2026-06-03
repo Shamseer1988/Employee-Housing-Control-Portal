@@ -51,7 +51,7 @@ def info():
     try:
         folder = str(backup._backup_dir())  # honours the setting + env
     except Exception:
-        folder = os.getenv("BACKUP_FOLDER", "/data/backups")
+        folder = os.getenv("BACKUP_FOLDER", os.path.join(os.path.dirname(__file__), "..", "..", "..", "backups"))
     try:
         usage = shutil.disk_usage(folder)
         space = {
@@ -135,8 +135,8 @@ def restore_existing(filename: str):
     # Snapshot operator identity BEFORE the restore — the SQLAlchemy
     # session is detached during the drop+recreate, so the `actor` ORM
     # object becomes unusable. We log to the application logger (visible
-    # in `docker compose logs backend`) instead of writing AuditLog —
-    # the audit row would race against the just-restored DB and the
+    # in the backend service log) instead of writing AuditLog — the
+    # audit row would race against the just-restored DB and the
     # restoring user might not even exist there.
     actor = current_user()
     actor_id, actor_username = actor.id, actor.username
@@ -173,7 +173,7 @@ def upload_restore():
     if not safe_name.endswith(".dump"):
         return error_response("Only .dump files (custom pg_dump format) are accepted", 400)
 
-    folder = Path(os.getenv("BACKUP_FOLDER", "/data/backups"))
+    folder = Path(os.getenv("BACKUP_FOLDER", os.path.join(os.path.dirname(__file__), "..", "..", "..", "backups")))
     folder.mkdir(parents=True, exist_ok=True)
 
     # Save into the folder so the operator can re-download / verify

@@ -27,11 +27,10 @@ def _database_uri() -> str:
 
     Priority:
       1. DATABASE_URL — explicit, wins if set (back-compat / native dev).
-      2. Assembled from POSTGRES_* — the single-source model: the db
-         service and the backend both read the same POSTGRES_USER /
-         POSTGRES_PASSWORD / POSTGRES_DB from backend/.env, and compose
-         forces POSTGRES_HOST=db so the app targets the db container.
-      3. A localhost default for bare-metal dev.
+      2. Assembled from POSTGRES_* — the backend reads POSTGRES_USER /
+         POSTGRES_PASSWORD / POSTGRES_DB / POSTGRES_HOST / POSTGRES_PORT
+         from backend/.env (or the operator's shell environment).
+      3. A localhost default for first-boot before .env exists.
     """
     explicit = os.getenv("DATABASE_URL")
     if explicit:

@@ -174,7 +174,7 @@ export function BackupPanel() {
               <HardDrive className="h-4 w-4 text-primary" /> Backup files
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Database snapshots in <span className="font-mono">{info?.folder ?? "/data/backups"}</span>.
+              Database snapshots in <span className="font-mono">{info?.folder ?? "../backups"}</span>.
               The scheduled backup runs based on the setting above.
             </p>
           </div>
@@ -227,9 +227,9 @@ export function BackupPanel() {
           <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 text-sm flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 text-rose-600 mt-0.5 shrink-0" />
             <div>
-              Backup folder isn&apos;t writable by the backend container. Check the
-              <span className="font-mono"> pug_backups</span> volume mount in your compose file
-              and the folder permissions.
+              Backup folder isn&apos;t writable by the backend process. Check the
+              path set in <span className="font-mono">backup.folder</span> (above) or the
+              <span className="font-mono"> BACKUP_FOLDER</span> env var, and the folder permissions.
             </div>
           </div>
         )}

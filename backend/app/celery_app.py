@@ -67,7 +67,7 @@ def init_celery(app) -> Celery:
     this, but they don't need the Flask context wrapper either (they
     set it up themselves via the @celery.task decorator's default base
     class). What this DOES add: the request-cycle Flask app context so
-    tasks running inside the gunicorn process (via .apply()) can use
+    tasks running inside the WSGI process (via .apply()) can use
     SQLAlchemy.
     """
     celery.conf.update(

@@ -11,9 +11,10 @@ POST /api/v1/events/publish — admin / test helper that publishes a
                               smoke-testing the SSE pipeline end-to-end
                               without touching the assignment service.
 
-In production this requires gunicorn's gthread or gevent worker class
-so a long-lived connection doesn't block a sync worker. The compose
-override is documented in DEPLOY notes (Phase 11).
+In production the WSGI server (waitress) needs enough threads that a
+long-lived stream connection doesn't starve the request thread pool.
+The default 8 threads is fine for ~4 concurrent SSE subscribers; bump
+WAITRESS_THREADS in backend/.env if you expect more.
 """
 import json
 import time

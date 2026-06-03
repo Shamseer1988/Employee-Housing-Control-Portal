@@ -12,7 +12,7 @@ Centralized, multi-company, multi-branch Employee Accommodation Management web a
 - **Backend** — Python Flask · App Factory + Blueprints · SQLAlchemy · Flask-Migrate (Alembic) · Flask-JWT-Extended · Flask-CORS · Marshmallow · openpyxl/pandas
 - **Database** — PostgreSQL 14+
 - **Frontend** — Next.js 14 (App Router) · TypeScript · React 18 · Tailwind CSS · shadcn/ui primitives · Framer Motion · Lucide icons · Recharts · TanStack Table · React Hook Form · Zod · next-themes
-- **Deploy target** — Ubuntu + Gunicorn + Nginx + Cloudflare
+- **Deploy target** — Windows host (PostgreSQL 17 + Redis + waitress + Next.js) behind a standalone nginx + Cloudflare. See `docs/BARE_METAL_WINDOWS.md`.
 
 ---
 

@@ -43,7 +43,7 @@ def init_logging(app: Flask) -> None:
     )
 
     # Wire stdlib logging through structlog. Other libraries (sqlalchemy,
-    # gunicorn etc.) write to logging.getLogger and we want those lines
+    # waitress, etc.) write to logging.getLogger and we want those lines
     # to come out with the same shape.
     logging.basicConfig(
         format="%(message)s", stream=sys.stdout, level=level,
@@ -59,7 +59,7 @@ def init_logging(app: Flask) -> None:
             renderer,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(level),
-        # No caching: a second create_app (test suite, gunicorn reload)
+        # No caching: a second create_app (test suite, waitress reload)
         # must be able to flip JSON vs console without restarting the
         # process.
         cache_logger_on_first_use=False,
@@ -150,7 +150,7 @@ def init_metrics(app: Flask) -> None:
 
     metrics = PrometheusMetrics(app, path=None)
     # prometheus_client uses a process-global registry, so subsequent
-    # create_app() calls (test suite, gunicorn reload) collide on the
+    # create_app() calls (test suite, waitress reload) collide on the
     # already-registered metric. Skip if it's been added.
     if "pug_app_info" not in {
         getattr(c, "_name", None) for c in REGISTRY._names_to_collectors.values()
