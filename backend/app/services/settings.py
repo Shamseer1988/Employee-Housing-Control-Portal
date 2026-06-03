@@ -178,12 +178,11 @@ DEFAULTS: list[dict] = [
     # ---------- Backup ----------
     {"key": "backup.folder", "category": "backup", "type": "string",
      "label": "Backup folder path", "value": "",
-     "description": "Absolute path inside the backend container where .dump files are written. "
-                    "Leave empty to use BACKUP_FOLDER env var (defaults to /data/backups). "
-                    "The path must exist and be writable by the container — mount a host folder "
-                    "or extra volume in docker-compose.yml if you want backups to land somewhere "
-                    "other than the default volume.",
-     "help": "e.g. /data/backups or /mnt/nas/db-backups"},
+     "description": "Absolute path on the host where pg_dump .dump files are written. "
+                    "Leave empty to use BACKUP_FOLDER env var, which itself defaults to "
+                    "a `backups/` folder next to the repo root. The path must exist and "
+                    "be writable by the user running the backend process.",
+     "help": "e.g. C:\\Apps\\housing-backups   or   /var/lib/housing/backups"},
     {"key": "backup.schedule", "category": "backup", "type": "select",
      "label": "Automatic backup schedule", "value": "daily",
      "options": [

@@ -181,7 +181,10 @@ The host-side `pug-backup.log` is rotated via `/etc/logrotate.d/pug-backup`:
 - Page Rules / WAF: keep `/api/v1/auth/login` under stricter rate
   limiting (e.g. 30 requests / minute / IP).
 - Cloudflare's `CF-Connecting-IP` header is trusted by the standalone
-  edge proxy stack (lives outside this repo).
+  edge proxy stack (lives outside this repo in `C:\Apps\edge-proxy\`).
+- For a fresh install on Windows, follow
+  [`docs/BARE_METAL_WINDOWS.md`](BARE_METAL_WINDOWS.md) — this older
+  doc has Docker-era specifics that no longer apply.
 
 ---
 

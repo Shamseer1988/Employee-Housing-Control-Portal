@@ -29,7 +29,7 @@ backend/                 Flask API
     services/            Business logic
     utils/responses.py   Standard JSON response helpers
   config.py              Dev / Testing / Production configs
-  wsgi.py                Entry point (gunicorn-friendly)
+  wsgi.py                Entry point (waitress-serve target)
   requirements.txt
   tests/                 pytest test suite
   .env.example
@@ -789,57 +789,49 @@ Frontend test framework
 - Manual path alias in `vitest.config.ts` (no ESM-only plugin) so
   `@/*` imports work identically to Next.
 
-Container build
-- `backend/Dockerfile` — multi-arch Python 3.11 image, drops to a
-  non-root `app` user, healthcheck against `/api/v1/health`,
-  gunicorn entrypoint reading `backend/gunicorn.conf.py`.
-- `frontend/Dockerfile` — three-stage build (deps → builder → runner)
-  on `node:20-alpine`, accepts a build-time `NEXT_PUBLIC_API_URL`
-  arg, runs as non-root with a `wget` healthcheck.
-- **Standalone edge proxy** — nginx + TLS terminate in a separate
-  compose stack ("the edge proxy") that shares the external Docker
-  network `pug_edge` with this one. This stack exposes the app on
-  `pug_edge` under the aliases `housing-backend:5000` and
-  `housing-frontend:3000`; the edge proxy's nginx upstreams target
-  those names. The Cloudflare Origin Cert + nginx.conf live in the
-  edge proxy stack's repo, not here.
-- `backend/gunicorn.conf.py` — 2×cores+1 workers (cap 16),
-  4 threads, JSON-format access log to stdout, 60s timeout.
+Bare-metal install (Windows / Linux / macOS)
+- **`scripts/install-windows.ps1`** — creates the backend venv,
+  installs pip + npm deps, builds the frontend. Re-runnable.
+- **`scripts/bootstrap-db.ps1`** — first-time only: `flask init-db` +
+  `migrate-all` + `seed`.
+- **`scripts/start-all.ps1`** — launches backend (waitress on
+  127.0.0.1:5000), Celery worker, Celery beat, and Next.js (3000)
+  in four labelled PowerShell windows.
+- **`scripts/stop-all.ps1`** — closes the four windows + kills any
+  stragglers.
+- **NSSM** for production: register each process as a Windows
+  service so it boots on startup and restarts on crash. Recipe in
+  `docs/BARE_METAL_WINDOWS.md` §7.
 
-Orchestration
-- `docker-compose.yml` wires `db` (Postgres 16-alpine) → `backend` →
-  `frontend` → `nginx`, with healthchecks ordering and named volumes
-  for Postgres data and uploads. `command:` runs
-  `flask db upgrade && flask seed && gunicorn …` on every boot
-  (both upgrade and seed are idempotent).
-- Root `.env.example` documents every variable; the only required
-  changes for a fresh box are `POSTGRES_PASSWORD`, `SECRET_KEY`,
-  `JWT_SECRET_KEY`, `SUPERUSER_PASSWORD`, and `PUBLIC_BASE_URL`.
+System prerequisites (installed by the operator, not the scripts):
+- PostgreSQL 17 (windows installer from postgresql.org)
+- Python 3.11 + venv
+- Node 20 + npm
+- Redis (Memurai on Windows, redis-server on Linux/macOS)
+- nginx — lives in the **separate edge-proxy stack** at
+  `C:\Apps\edge-proxy\`, terminates TLS, talks to backend/frontend
+  on loopback. Not in this repo.
 
 Backup / restore
-- `scripts/backup.sh` — gzipped `pg_dump` to
-  `backups/pug-YYYYMMDDTHHMMSSZ.sql.gz` + prune by retention.
-- `scripts/restore.sh` — confirms before dropping the schema and
-  piping a dump back in.
+- `backend/app/services/backup.py` wraps `pg_dump`/`pg_restore` and
+  surfaces it through Settings → Backup in the UI. Drop+recreate
+  restore strategy avoids holding-connection deadlocks.
 
 CI / automation
-- `.github/workflows/ci.yml` runs on push and PR:
-  - **backend** job: `pip install`, `pytest -q --disable-warnings`.
-  - **frontend** job: `npm ci`, `npm run type-check`, `npm test`,
-    `npm run build`.
-  - **docker** job (gated on the two above): `docker compose build
-    --pull` to catch image-level regressions.
+- `.github/workflows/ci.yml`:
+  - **backend** — pytest + coverage on every push.
+  - **frontend** — `tsc --noEmit`, vitest, `next build`.
+  - **pip-audit** + **npm audit** — supply-chain (report-only).
 
 Deployment docs
-- `docs/DEPLOYMENT.md` — full Ubuntu + Docker runbook covering
-  architecture, first-time setup, env reference, upgrades,
-  backup/restore + cron schedule, log rotation, TLS via Cloudflare
-  (Full-strict / `CF-Connecting-IP`), health checks, common ops
-  (re-seed, shell, password reset), and a troubleshooting table.
+- **`docs/BARE_METAL_WINDOWS.md`** — canonical Windows install + run
+  guide (system prereqs, scripts, NSSM, troubleshooting).
+- **`docs/OPERATIONS_CHEATSHEET.txt`** — daily ops cheatsheet.
+- **`DEPLOY.md`** — high-level architecture + where-things-live table.
 
 Tests
-- Backend `pytest -q` → **99 passed** (unchanged).
-- Frontend `npm test` → **13 passed**, `tsc --noEmit` clean,
+- Backend `pytest -q` → all green.
+- Frontend `npm test` → all green, `tsc --noEmit` clean,
   `next build` green.
 
 ---
@@ -847,10 +839,12 @@ Tests
 ## 🎉 Build complete
 
 All 14 phases from the blueprint are shipped. From here:
-- Run `cp .env.example .env`, fill in secrets, `docker compose up -d`,
-  open `http://localhost`, log in as `admin` with the password you set.
-- Push to GitHub to trigger the CI workflow; merge to `main` once green.
-- Schedule the cron backup line from `docs/DEPLOYMENT.md`.
+- Follow `docs/BARE_METAL_WINDOWS.md` to install PostgreSQL 17, Redis,
+  Python 3.11, Node 20 on the office host.
+- Run `scripts\install-windows.ps1` → `scripts\bootstrap-db.ps1` →
+  `scripts\start-all.ps1`.
+- Set up the separate edge-proxy stack at `C:\Apps\edge-proxy\` for
+  Cloudflare TLS termination.
 
 ---
 

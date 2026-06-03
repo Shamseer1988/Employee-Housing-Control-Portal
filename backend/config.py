@@ -1,24 +1,10 @@
 import os
 from dotenv import load_dotenv
 
-# Only load backend/.env for native (non-Docker) dev. Inside a container
-# every env var the app needs already comes from the compose
-# `environment:` block — and our backend/.env.example deliberately ships
-# with `REDIS_URL=redis://localhost:6379/0` / `POSTGRES_HOST=localhost`
-# for native dev. Letting load_dotenv() re-apply those host-friendly
-# values inside the container silently overrode the compose-provided
-# `redis:6379` / `db:5432` upstreams.
-#
-# /.dockerenv is created by every Docker engine — its presence means
-# "we're inside a container, trust the env we were started with."
-#
-# Belt-and-braces: even when we DO load (native dev), pass override=False
-# so a stale .env can't clobber an env var the operator deliberately
-# exported in their shell. (python-dotenv 1.x technically defaults to
-# override=False already, but pinning it makes the intent explicit and
-# survives any future default-flip.)
-if not os.path.exists("/.dockerenv"):
-    load_dotenv(override=False)
+# Load backend/.env. override=False so a value the operator deliberately
+# exported in their shell (or supplied via a service-manager environment
+# block) always wins over a stale entry in the file.
+load_dotenv(override=False)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 

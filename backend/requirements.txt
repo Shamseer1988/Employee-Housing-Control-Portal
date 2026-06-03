@@ -8,7 +8,10 @@ alembic==1.18.4
 psycopg2-binary==2.9.12
 python-dotenv==1.2.2
 marshmallow==4.3.0
-gunicorn==22.0.0
+# waitress: pure-Python WSGI server, works on Windows + Linux without
+# native deps. Replaces gunicorn (Linux-only) since we no longer ship
+# containers and the host can be a Windows box.
+waitress==3.0.2
 openpyxl==3.1.5
 pandas==2.2.2
 bcrypt==4.1.3
