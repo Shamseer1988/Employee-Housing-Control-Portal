@@ -144,6 +144,12 @@ bash scripts/stop-all.sh     # kill them
 
 ## 5. nginx in front
 
+> **Skip this section** if you're running topology B — a separate
+> edge-nginx CT fronts this host. In that case bind the app to
+> `0.0.0.0` (set `WAITRESS_LISTEN=0.0.0.0:5000` in `backend/.env` and
+> `HOSTNAME=0.0.0.0` in `frontend/.env.runtime`), then see
+> [`FRESH_DEPLOY_LXC_EDGE.md`](FRESH_DEPLOY_LXC_EDGE.md).
+
 A minimal HTTPS terminator (assumes Cloudflare Origin Cert on disk):
 
 ```nginx

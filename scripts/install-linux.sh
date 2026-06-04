@@ -95,6 +95,20 @@ else
     echo "  backend/.env already exists — left alone."
 fi
 
+# -----------------------------------------------------------------------------
+# Seed frontend/.env.runtime on first run. Optional — the systemd unit
+# falls back to topology-A defaults if this file is missing. Operators
+# only need to edit it when flipping HOSTNAME for topology B.
+# -----------------------------------------------------------------------------
+say "frontend/.env.runtime"
+if [[ ! -f "frontend/.env.runtime" ]]; then
+    cp frontend/.env.runtime.example frontend/.env.runtime
+    echo "  copied frontend/.env.runtime.example -> frontend/.env.runtime"
+    echo "  For topology B (shared edge-nginx CT) set HOSTNAME=0.0.0.0 in this file."
+else
+    echo "  frontend/.env.runtime already exists — left alone."
+fi
+
 printf '\n\033[32mDone.\033[0m Next steps:\n'
 echo "  1. Edit backend/.env (secrets, DB password)."
 echo "  2. Create the Postgres database + role (see docs/BARE_METAL_LINUX.md §2)."
