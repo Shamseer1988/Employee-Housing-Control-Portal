@@ -105,7 +105,8 @@ foreach ($cmd in "node", "npm", "psql") {
     if (-not $found) {
         Write-Error "$cmd not found in PATH. Install it (see docs/BARE_METAL_WINDOWS.md) and re-run."
     }
-    Write-Host "  $cmd : $($found.Path ?? $found.Source)"
+    $path = if ($found.Path) { $found.Path } else { $found.Source }
+    Write-Host "  $cmd : $path"
 }
 
 # -----------------------------------------------------------------------------
