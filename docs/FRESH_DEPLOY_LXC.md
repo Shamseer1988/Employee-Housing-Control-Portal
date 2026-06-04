@@ -1,8 +1,15 @@
-# Fresh deploy on Proxmox LXC (git clone → public HTTPS)
+# Fresh deploy on Proxmox LXC — self-contained CT (git clone → public HTTPS)
 
 Step-by-step recipe for a brand-new Proxmox LXC container hosting the
 Employee Housing Control Portal. Targets a single unprivileged LXC with
-PostgreSQL + Redis + the app + nginx all in one place.
+PostgreSQL + Redis + the app + nginx all in one place. This is
+**topology A** — everything lives in one CT and Cloudflare terminates
+on its own nginx.
+
+> Running a separate edge-nginx CT that reverse-proxies multiple sites?
+> Use [`FRESH_DEPLOY_LXC_EDGE.md`](FRESH_DEPLOY_LXC_EDGE.md) (topology
+> B) instead. Same systemd units, two env-var flips, no nginx or
+> tunnel in the app CT.
 
 For container-vs-host trade-offs, hardening details, and general Linux
 ops, see `docs/BARE_METAL_LINUX.md` — this file is the LXC-specific

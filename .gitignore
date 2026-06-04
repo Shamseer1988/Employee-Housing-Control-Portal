@@ -29,6 +29,7 @@ yarn-error.log*
 frontend/.env
 frontend/.env.local
 frontend/.env.production
+frontend/.env.runtime
 backend/.env
 
 # Uploads & backups (keep folder, ignore contents)
