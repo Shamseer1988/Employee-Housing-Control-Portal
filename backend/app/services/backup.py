@@ -7,8 +7,9 @@ Wraps `pg_dump` / `pg_restore` so the operator can:
   * have backups run automatically on a schedule (see app.tasks.backup)
 
 Storage:
-  Backups live in BACKUP_FOLDER (defaults to /data/backups in the
-  container, mounted as a docker volume). Files are written with the
+  Backups live in BACKUP_FOLDER (defaults to ../backups, relative to
+  the backend folder). Set the env var to point at a host-absolute
+  path in production. Files are written with the
   custom pg_dump format (`-Fc`) — compact and friendly to pg_restore's
   selective options. Filename pattern:
       pug-accommodation-YYYYMMDD-HHMMSSZ.dump
@@ -65,20 +66,21 @@ class BackupFile:
 def _backup_dir() -> Path:
     """Resolve the backup folder. Operator can override via the
     `backup.folder` setting in the Settings UI; falls back to the
-    BACKUP_FOLDER env var, then to /data/backups. Always
-    `mkdir -p`s the resulting path so a fresh install just works."""
-    # Avoid an import cycle: settings_service imports from extensions/db
-    # which is fine here, but keep the import lazy in case backup is
-    # called very early in app boot.
+    BACKUP_FOLDER env var, then to ../backups relative to the backend
+    folder. Always `mkdir -p`s the resulting path so a fresh install
+    just works."""
     from . import settings as settings_service
     try:
         configured = settings_service.get("backup.folder")
     except Exception:
         configured = None
+    default = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "backups")
+    )
     folder = (
         (configured or "").strip()
         or current_app.config.get("BACKUP_FOLDER")
-        or os.getenv("BACKUP_FOLDER", "/data/backups")
+        or os.getenv("BACKUP_FOLDER", default)
     )
     p = Path(folder)
     p.mkdir(parents=True, exist_ok=True)
@@ -238,13 +240,14 @@ def restore_backup(source: Path) -> None:
     Strategy: drop the app database and recreate it empty, then
     pg_restore into the fresh DB. We do NOT use pg_restore --clean
     because that issues per-table DROP TABLE statements which deadlock
-    against other gunicorn workers / background tasks holding open
+    against other waitress threads / background tasks holding open
     sessions — the request appears to freeze indefinitely.
 
     Drop / create are issued against the `postgres` admin DB so we
     aren't connected to the database we're dropping. Before the drop
-    we explicitly terminate any other backend connections (gunicorn
-    siblings, celery worker, beat) — without that DROP DATABASE would
+    we explicitly terminate any other backend connections (sibling
+    waitress threads, celery worker, beat) — without that DROP
+    DATABASE would
     block on the same locks pg_restore --clean used to block on.
 
     After the restore SQLAlchemy's engine pool is disposed; the next

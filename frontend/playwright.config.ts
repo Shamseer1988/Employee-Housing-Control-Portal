@@ -1,13 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Phase 9 E2E config.
+ * E2E config.
  *
  * Expects the backend on http://localhost:5000 and the Next dev server
  * on http://localhost:3000. Playwright's `webServer` block boots Next
- * automatically; the backend is the operator's responsibility (run
- * `cd backend && flask --app wsgi run -p 5000` in another shell, or
- * `docker compose up -d backend redis db`).
+ * automatically; the backend is the operator's responsibility — run
+ * `cd backend && flask --app wsgi run -p 5000` (or
+ * `scripts\start-all.ps1` on the deployed Windows host) in another
+ * shell first.
  *
  * Run: `npm run e2e` (headless) or `npm run e2e:headed` for debug.
  * First-time setup also needs `npx playwright install chromium`.
@@ -37,8 +38,8 @@ export default defineConfig({
   ],
 
   // Only auto-start Next when we're not already pointing at a running
-  // host (Docker compose, CI service). The backend isn't booted here
-  // — see the file header.
+  // host (CI service, manual `npm start`). The backend isn't booted
+  // here — see the file header.
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {

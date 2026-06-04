@@ -43,15 +43,11 @@ backups/*
 *.swp
 backend/.venv-test/
 
-# Production TLS material — never commit (Phase 11).
-# Track only the README + layout templates; the real origin.crt /
-# origin.key are operator-placed at deploy time.
-deploy/ssl/*
-!deploy/ssl/README.txt
-!deploy/ssl/origin.crt.example
-!deploy/ssl/origin.key.example
+# Backend venv (created by scripts/install-windows.ps1).
+backend/.venv/
 
-# Backup files dumped by the backend into the bind-mounted host folder.
-# Keep the README so the directory survives a fresh clone.
-backups-host/*
-!backups-host/README.txt
+# Backup .dump files written by the backend (BACKUP_FOLDER, default ../backups).
+backups/
+
+# Local environment files.
+backend/.env

@@ -10,10 +10,14 @@ package. This entrypoint:
   2. Re-exports the configured Celery instance as `celery` so
      `celery -A celery_worker.celery` works.
 
-Usage (matches docker-compose commands):
+Usage (from inside backend/ with venv activated):
 
-    celery -A celery_worker.celery worker --loglevel=info
+    celery -A celery_worker.celery worker --pool=solo --loglevel=info
     celery -A celery_worker.celery beat   --loglevel=info
+
+On Windows use --pool=solo (prefork doesn't work). On Linux you can
+drop the flag for the default prefork pool. scripts/start-all.ps1
+launches both with the right flags for Windows.
 """
 from app import create_app
 from app.celery_app import celery, init_celery

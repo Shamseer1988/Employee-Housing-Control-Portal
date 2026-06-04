@@ -1,0 +1,25 @@
+[Unit]
+Description=Housing portal — Next.js frontend
+After=network.target housing-backend.service
+
+[Service]
+Type=simple
+User=housing
+Group=housing
+WorkingDirectory=/opt/housing/frontend
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -28,23 +28,6 @@ updates:
       frontend-minor-and-patch:
         update-types: ["minor", "patch"]
 
-  # Backend Dockerfile base image (python:3.11-slim) and nginx base.
-  - package-ecosystem: docker
-    directory: "/backend"
-    schedule:
-      interval: weekly
-    labels: ["dependencies", "docker"]
-  - package-ecosystem: docker
-    directory: "/frontend"
-    schedule:
-      interval: weekly
-    labels: ["dependencies", "docker"]
-  - package-ecosystem: docker
-    directory: "/deploy"
-    schedule:
-      interval: weekly
-    labels: ["dependencies", "docker"]
-
   # GitHub Actions pinned in .github/workflows/*.yml.
   - package-ecosystem: github-actions
     directory: "/"

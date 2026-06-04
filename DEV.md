@@ -1,84 +1,90 @@
 # Local development
 
-The local stack runs **without nginx and without TLS**. The Next.js
-frontend is the single entry point and reverse-proxies `/api/*` to the
-backend over the Docker network, so the browser only ever talks to one
-origin (first-party cookies, no CORS, no certs).
+```cmd
+:: First-time setup (Windows) — installs venv + builds frontend.
+.\scripts\install-windows.ps1
 
-## Run it (Docker — recommended)
+:: Bootstrap the database (creates tables, runs phase migrations, seeds).
+.\scripts\bootstrap-db.ps1
 
-```bash
-cp backend/.env.example backend/.env     # first time only
-docker compose up -d --build
+:: Start everything (opens 4 PowerShell windows).
+.\scripts\start-all.ps1
 ```
 
-Open **http://localhost:8080** — login `admin` / `ChangeMe123!`.
+Then open **http://localhost:3000** — login `admin` /
+`<SUPERUSER_PASSWORD value from backend\.env>`.
 
-All services (db, backend, worker, beat) read **`backend/.env`** via
-`env_file`, so Postgres and the app share one credentials file. The
-compose file only forces the network coordinates (`POSTGRES_HOST=db`,
-`REDIS_URL`, `BACKEND_INTERNAL_URL`). Editing `backend/.env` and
-re-running `docker compose up -d` is all you need to change secrets.
-(The stack still boots on built-in defaults if you skip the copy —
-`required: false`.)
+The four windows are: backend (waitress on 127.0.0.1:5000), Celery
+worker, Celery beat, Next.js frontend (127.0.0.1:3000). Tail each
+window for real-time logs.
 
-Services and host ports:
-- **frontend** → http://localhost:8080  ← the app
-- **backend**  → http://localhost:5000  (direct API access for debugging)
-- **db**       → localhost:5432 (Postgres)
-- **redis**, **worker**, **beat** → internal only
+## System prerequisites (one-time, see `docs/BARE_METAL_WINDOWS.md`)
 
-Change the app port if 8080 is taken:
-```bash
-APP_PORT=9000 docker compose up -d
+- PostgreSQL 17 — official Windows installer.
+- Python 3.11 — with "Add to PATH" checked.
+- Node 20 LTS.
+- Redis — Memurai (recommended) or WSL2 + redis-server.
+
+## Stop everything
+
+```cmd
+.\scripts\stop-all.ps1
 ```
 
-Stop: `docker compose down`  ·  Wipe data: `docker compose down -v`
+## Re-run after pulling new code
 
-### Why no nginx locally?
-nginx is only needed to terminate TLS and enforce the Cloudflare edge
-allowlist — both production concerns. Locally the frontend's built-in
-proxy does the `/api` routing, so there's nothing for nginx to add and
-one less moving part (no port 80 clash with IIS, no cert files).
-
-Cookies are issued **without** the `Secure` flag locally
-(`JWT_COOKIE_SECURE=false`) so the browser keeps them over plain HTTP —
-the usual cause of "login succeeds then bounces back to /login".
-
-## Run it (native, fastest iteration)
-
-Backend:
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
-flask --app wsgi init-db && flask --app wsgi seed
-flask --app wsgi run --debug --port 5000
+```cmd
+.\scripts\stop-all.ps1
+git pull
+.\scripts\install-windows.ps1     :: refreshes deps if requirements changed
+.\scripts\start-all.ps1
 ```
 
-Frontend:
-```bash
-cd frontend
-npm install
-npm run dev      # http://localhost:3000, proxies /api to :5000
-```
+## Iterating on code
+
+- **Backend hot-reload** — stop the backend window, restart manually:
+  ```cmd
+  cd backend
+  .venv\Scripts\python.exe wsgi.py    :: dev server with debug reload
+  ```
+- **Frontend hot-reload** — by default `npm start` runs the prod build.
+  For HMR, stop the frontend window and run:
+  ```cmd
+  cd frontend
+  npm run dev
+  ```
+  Opens on port 3000 with file-watching.
 
 ## Tests
 
-```bash
-cd backend  && pytest -q
-cd frontend && npm run type-check && npm test && npm run build
+Backend:
+```cmd
+cd backend
+.venv\Scripts\pytest -q
 ```
 
-> Run `npm run build` too — `tsc`/`vitest` accept some things the
-> production `next build` rejects (e.g. stray named exports from a
-> `page.tsx`), and the Docker image uses `next build`.
+Frontend:
+```cmd
+cd frontend
+npm run type-check
+npm test
+```
 
-## Production
+## Linux / macOS
 
-Live deployment (Cloudflare → nginx TLS → app) is a separate compose
-file and is documented in **DEPLOY.md**:
+Same shape, different shell:
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d --build
+python3.11 -m venv backend/.venv
+source backend/.venv/bin/activate
+pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+(cd frontend && npm ci && npm run build)
+flask --app backend.wsgi init-db
+flask --app backend.wsgi seed
+waitress-serve --listen=127.0.0.1:5000 --threads=8 backend.wsgi:app  # in one shell
+(cd frontend && npm start)                                            # in another
+celery -A backend.celery_worker.celery worker --loglevel=info        # in another
+celery -A backend.celery_worker.celery beat   --loglevel=info        # in another
 ```
+
+Production deployment is documented in `docs/BARE_METAL_WINDOWS.md`.
