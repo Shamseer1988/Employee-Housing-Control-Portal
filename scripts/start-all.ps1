@@ -25,19 +25,24 @@ function Start-InNewWindow($title, $workdir, $command) {
     ) | Out-Null
 }
 
+$waitress = Join-Path $backend ".venv\Scripts\waitress-serve.exe"
+$celery = Join-Path $backend ".venv\Scripts\celery.exe"
+$listen = if ($env:WAITRESS_LISTEN) { $env:WAITRESS_LISTEN } else { "127.0.0.1:5000" }
+$threads = if ($env:WAITRESS_THREADS) { $env:WAITRESS_THREADS } else { "8" }
+
 Write-Host "Starting backend (waitress)..." -ForegroundColor Cyan
 Start-InNewWindow "housing-backend" $backend `
-    "& .venv\Scripts\waitress-serve.exe --listen=`$env:WAITRESS_LISTEN --threads=`$env:WAITRESS_THREADS wsgi:app"
+    "& '$waitress' --listen=$listen --threads=$threads wsgi:app"
 
 Start-Sleep -Seconds 3
 
 Write-Host "Starting Celery worker..." -ForegroundColor Cyan
 Start-InNewWindow "housing-worker" $backend `
-    "& .venv\Scripts\celery.exe -A celery_worker.celery worker --loglevel=info --pool=solo"
+    "& '$celery' -A celery_worker.celery worker --loglevel=info --pool=solo"
 
 Write-Host "Starting Celery beat..." -ForegroundColor Cyan
 Start-InNewWindow "housing-beat" $backend `
-    "& .venv\Scripts\celery.exe -A celery_worker.celery beat --loglevel=info --schedule=$env:TEMP\celerybeat-schedule"
+    "& '$celery' -A celery_worker.celery beat --loglevel=info --schedule=$env:TEMP\celerybeat-schedule"
 
 Write-Host "Starting Next.js frontend..." -ForegroundColor Cyan
 Start-InNewWindow "housing-frontend" $frontend `

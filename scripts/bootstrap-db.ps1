@@ -11,8 +11,9 @@ if (-not (Test-Path ".venv")) {
 }
 
 $env:PYTHONUNBUFFERED = "1"
-& .venv\Scripts\flask.exe --app wsgi wait-for-db
-& .venv\Scripts\flask.exe --app wsgi init-db
-& .venv\Scripts\flask.exe --app wsgi migrate-all
-& .venv\Scripts\flask.exe --app wsgi seed
+$flask = Join-Path (Get-Location) ".venv\Scripts\flask.exe"
+& $flask --app wsgi wait-for-db
+& $flask --app wsgi init-db
+& $flask --app wsgi migrate-all
+& $flask --app wsgi seed
 Write-Host "Done. Run scripts\start-all.ps1 next."
