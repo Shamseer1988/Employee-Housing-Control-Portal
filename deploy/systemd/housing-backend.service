@@ -1,0 +1,29 @@
+[Unit]
+Description=Housing portal — Flask backend (waitress)
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=housing
+Group=housing
+WorkingDirectory=/opt/housing/backend
+EnvironmentFile=/opt/housing/backend/.env
+# WAITRESS_LISTEN / WAITRESS_THREADS come from .env. Hard defaults below
+# in case they're unset.
+Environment=WAITRESS_LISTEN=127.0.0.1:5000
+Environment=WAITRESS_THREADS=8
+ExecStart=/opt/housing/backend/.venv/bin/waitress-serve --listen=${WAITRESS_LISTEN} --threads=${WAITRESS_THREADS} wsgi:app
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

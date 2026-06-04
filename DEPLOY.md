@@ -1,11 +1,14 @@
 # Production deployment
 
-The canonical deployment is **bare-metal Windows** with the standalone
-edge-proxy stack in front. There is no longer a Docker option in this
-repo.
+Two supported targets, same Python/Node code path, different host
+plumbing:
 
-→ **See [`docs/BARE_METAL_WINDOWS.md`](docs/BARE_METAL_WINDOWS.md)** for
-the step-by-step install + operate guide.
+| Host | Install | Service mgr | Recipe |
+|---|---|---|---|
+| **Windows** (office desktop) | `scripts\install-windows.ps1` | NSSM | [`docs/BARE_METAL_WINDOWS.md`](docs/BARE_METAL_WINDOWS.md) — operate, [`docs/FRESH_DEPLOY_FROM_SCRATCH.md`](docs/FRESH_DEPLOY_FROM_SCRATCH.md) — first deploy |
+| **Linux / Proxmox LXC** | `scripts/install-linux.sh` | systemd | [`docs/BARE_METAL_LINUX.md`](docs/BARE_METAL_LINUX.md) — operate, [`docs/FRESH_DEPLOY_LXC.md`](docs/FRESH_DEPLOY_LXC.md) — first deploy |
+
+There is no longer a Docker option in this repo.
 
 ## TL;DR
 
