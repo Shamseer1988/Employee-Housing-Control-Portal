@@ -39,8 +39,23 @@ Install these on the host **before** running any project scripts.
 
 ### 1.2 Python 3.11
 - Download: https://www.python.org/downloads/windows/
-- Install with **"Add python.exe to PATH"** checked.
-- Verify: `python --version` → `Python 3.11.x`.
+- Install with **"Add python.exe to PATH"** checked AND
+  **"py launcher"** checked (it's on by default).
+- Verify: `python --version` → `Python 3.11.x` **and**
+  `py -3.11 --version` → `Python 3.11.x`.
+- **Heads-up about the Microsoft Store stub.** On a fresh Windows
+  install `python` on PATH may resolve to
+  `C:\Users\<you>\AppData\Local\Microsoft\WindowsApps\python.exe` —
+  a Microsoft Store launcher stub, NOT a real interpreter. It prints
+  "Python was not found" and exits when you try to use it. Three
+  ways out:
+  - The install script prefers `py -3.11`, which always bypasses the
+    stub. Make sure you ticked **"py launcher"** in the installer.
+  - Or set `$env:PYTHON_EXE = 'C:\Users\<you>\AppData\Local\Programs\Python\Python311\python.exe'`
+    in your shell before running the script.
+  - Or disable the stub: Settings → Apps → Advanced app settings →
+    App execution aliases → toggle OFF the two `python.exe` /
+    `python3.exe` entries. Open a NEW PowerShell window afterwards.
 
 ### 1.3 Node.js 20 (LTS)
 - Download: https://nodejs.org/en/download/ (Windows installer, LTS).
