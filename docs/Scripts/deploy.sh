@@ -43,12 +43,12 @@ trap 'fail "deploy aborted on line $LINENO — services may be down; review $LOG
 [[ -d "$REPO_ROOT/backend" ]] || fail "$REPO_ROOT/backend missing."
 id "$SERVICE_USER" >/dev/null || fail "user '$SERVICE_USER' does not exist."
 
-# Self-heal ownership inside .git. A previous manual `git pull` as root
-# leaves FETCH_HEAD / ORIG_HEAD / packed-refs owned by root, which then
-# breaks the next `sudo -u housing git fetch`. Working-tree files we
-# leave alone — if root edited those, surface it via a git status fail
-# instead of silently rewriting.
-chown -R "$SERVICE_USER:$SERVICE_USER" "$REPO_ROOT/.git"
+# Self-heal repo ownership. A previous manual `sudo git pull` leaves
+# .git/FETCH_HEAD AND working-tree files owned by root, so the next
+# `sudo -u housing git pull` fails on both fetch and checkout. Chown
+# the whole tree to the service user every run — idempotent and
+# matches the documented layout.
+chown -R "$SERVICE_USER:$SERVICE_USER" "$REPO_ROOT"
 
 mkdir -p "$BACKUP_DIR"
 chown "$SERVICE_USER:$SERVICE_USER" "$BACKUP_DIR"
