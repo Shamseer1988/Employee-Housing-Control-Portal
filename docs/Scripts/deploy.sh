@@ -98,8 +98,11 @@ fi
 
 # --- 4. install deps + rebuild frontend -----------------------------------
 say "scripts/install-linux.sh (venv + pip + npm ci + npm run build)"
-sudo -u "$SERVICE_USER" PATH="/usr/sbin:$PATH" \
-    bash -lc "cd '$REPO_ROOT' && bash scripts/install-linux.sh" 2>&1 | tee -a "$LOG"
+# Non-login shell (-c not -lc) so we don't drop the explicit PATH on
+# /etc/profile re-read. install-linux.sh also self-prepends /usr/sbin
+# defensively, so this is belt-and-braces.
+sudo -u "$SERVICE_USER" PATH="/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin" \
+    bash -c "cd '$REPO_ROOT' && bash scripts/install-linux.sh" 2>&1 | tee -a "$LOG"
 
 # --- 5. run migrations -----------------------------------------------------
 say "Database migrations"

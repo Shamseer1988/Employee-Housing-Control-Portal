@@ -14,6 +14,12 @@
 
 set -euo pipefail
 
+# ldconfig lives in /sbin or /usr/sbin — not on a non-root login shell's
+# PATH by default on Debian, so the libmagic probe below would fall
+# through silently. Prepend both unconditionally; this is a no-op if
+# they're already there.
+export PATH="/usr/sbin:/sbin:$PATH"
+
 # Move to repo root regardless of where the script was invoked from.
 cd "$(dirname "$0")/.."
 
