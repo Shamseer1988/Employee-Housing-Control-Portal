@@ -57,8 +57,14 @@ say "  log  : $LOG"
 say "Postgres backup (safety net)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 DUMP="$BACKUP_DIR/pre-deploy-$STAMP.dump"
-sudo -u postgres pg_dump -Fc "$DB_NAME" -f "$DUMP"
+# pg_dump runs as the 'postgres' user and can't write into a dir owned by
+# 'housing'. Dump to /tmp (writable by anyone), then mv + chown into the
+# final backup dir as root.
+TMP_DUMP="/tmp/housing-pre-deploy-$STAMP.dump"
+sudo -u postgres pg_dump -Fc "$DB_NAME" -f "$TMP_DUMP"
+mv "$TMP_DUMP" "$DUMP"
 chown "$SERVICE_USER:$SERVICE_USER" "$DUMP"
+chmod 640 "$DUMP"
 say "  wrote $DUMP ($(du -h "$DUMP" | cut -f1))"
 
 # --- 2. stop services (reverse dep order) ---------------------------------
