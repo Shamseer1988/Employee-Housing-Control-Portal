@@ -85,7 +85,7 @@ Create the database role + database:
 
 ```bash
 sudo -u postgres psql <<SQL
-CREATE ROLE pug LOGIN PASSWORD 'pick-a-strong-password';
+CREATE ROLE pug LOGIN CREATEDB PASSWORD 'pick-a-strong-password';
 CREATE DATABASE pug_accommodation OWNER pug;
 SQL
 ```

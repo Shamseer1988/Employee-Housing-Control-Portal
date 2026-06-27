@@ -83,7 +83,7 @@ psql -U postgres
 Inside the `psql` prompt — pick a strong, random password for `pug`:
 
 ```sql
-CREATE ROLE pug LOGIN PASSWORD 'use-a-strong-random-password';
+CREATE ROLE pug LOGIN CREATEDB PASSWORD 'use-a-strong-random-password';
 CREATE DATABASE pug_accommodation OWNER pug;
 \q
 ```
